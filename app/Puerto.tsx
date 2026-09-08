@@ -580,8 +580,9 @@ export default function Puerto() {
           )}
           <p className="demo-note">
             <ShieldCheck size={15} aria-hidden="true" /> Demo privada: las
-            credenciales iniciales se validan sólo en este navegador. Google y
-            Apple muestran el flujo pendiente de configuración.
+            credenciales iniciales se validan sólo en este navegador. Google se
+            autentica mediante Firebase; Apple requiere su configuración de
+            producción.
           </p>
         </section>
       </main>
