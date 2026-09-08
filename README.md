@@ -19,7 +19,7 @@ Pruebas: `node --test lib/domain.test.ts`. Tipos: `pnpm exec tsc --noEmit`.
 
 ## Alcance
 
-La demo permite entrar con username o email y las contraseñas iniciales indicadas en la especificación para cualquiera de las seis cuentas. Esta validación ocurre en el navegador y no es autenticación apta para producción; la privacidad de Sites protege el acceso a la demo, pero no sustituye la sesión del producto. Google usa Firebase Auth cuando se cargan las variables de `.env.example`: una identidad nueva debe completar “¿Quién sos?” y sólo puede elegir los cinco miembros no administradores. Ruleta, gastos, credenciales editadas, enlaces sociales, bio, avatar y ajustes viven en memoria y se reinician al recargar. Sólo el tema se guarda en localStorage. No ingresar datos sensibles.
+El acceso se realiza exclusivamente con Google mediante Firebase Authentication. En el primer ingreso, cada cuenta debe completar “¿Quién sos?” y sólo puede elegir uno de los cinco miembros no administradores. Los perfiles, gastos y resultados de ruleta se sincronizan mediante Cloud Firestore. El tema visual queda guardado en el dispositivo.
 
 La implementación real debe guardar las contraseñas con Argon2id, forzar el cambio de las claves iniciales, rotar sesiones y ejecutar OAuth en el backend con state, nonce y validación del subject. Los emails `.local` no son direcciones entregables y deben reemplazarse y verificarse antes de ofrecer recuperación por correo.
 

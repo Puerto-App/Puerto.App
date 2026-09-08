@@ -20,11 +20,8 @@ import {
   Navigation,
   Trash2,
   CheckCheck,
-  LogIn,
   Link2,
   Unlink,
-  KeyRound,
-  Mail,
   LogOut,
   DollarSign,
 } from 'lucide-react';
@@ -46,11 +43,10 @@ import {
   type Draw,
   type SeedAccount as Account,
   SEED_ACCOUNTS,
-  verifyDemoCredentials,
   isValidBirthday,
   splitExpense,
 } from '@/lib/domain';
-import { claimMember, findMemberByUid, saveMember, seedMembers, signInWithFirebaseGoogle, type FirebaseUser } from '@/lib/firebase';
+import { claimMember, findMemberByUid, loadGroupState, saveGroupState, saveMember, seedMembers, signInWithFirebaseGoogle, type FirebaseUser } from '@/lib/firebase';
 
 const seedAccounts: Account[] = SEED_ACCOUNTS.map((account) => ({
   ...account,
@@ -70,7 +66,7 @@ type Expense = {
   amountCents: number;
   payerId: string;
   participantIds: string[];
-  at: Date;
+  at: string;
   shares: ReturnType<typeof splitExpense>;
 };
 const titles = {
@@ -154,8 +150,6 @@ export default function Puerto() {
   const [accounts, setAccounts] = useState(seedAccounts);
   const [currentUser, setCurrentUser] = useState<Account | null>(null);
   const [profileSubjectId, setProfileSubjectId] = useState<string | null>(null);
-  const [loginIdentity, setLoginIdentity] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
   const [loginStatus, setLoginStatus] = useState('');
   const [pendingGoogle, setPendingGoogle] = useState<FirebaseUser | null>(null);
   const [linkedGoogle, setLinkedGoogle] = useState(false);
@@ -175,7 +169,6 @@ export default function Puerto() {
     [aiBio, setAiBio] = useState(''),
     [birth, setBirth] = useState('24/08'),
     [username, setUsername] = useState('Denis'),
-    [newPassword, setNewPassword] = useState(''),
     [avatar, setAvatar] = useState(''),
     [profileStatus, setProfileStatus] = useState('');
   const [theme, setTheme] = useState('system'),
@@ -220,6 +213,12 @@ export default function Puerto() {
       localStorage.setItem('puerto-theme', theme);
     } catch {}
   }, [theme]);
+  useEffect(() => {
+    if (!currentUser) return;
+    void loadGroupState().then((stored) => {
+      if (Array.isArray(stored.expenses)) setExpenses(stored.expenses as Expense[]);
+    }).catch(() => setNotice('No se pudieron sincronizar los datos compartidos.'));
+  }, [currentUser?.id]);
   const currentGps = gps && now - gps.at <= 60000 ? gps : null;
   const profileSubject =
     accounts.find((account) => account.id === profileSubjectId) ?? currentUser;
@@ -236,6 +235,9 @@ export default function Puerto() {
           ? ` · Suplentes: ${r.substituteAssignments.map((assignment) => `${assignment.member} al equipo ${assignment.teamIndex + 1}`).join(', ')}`
           : '');
     setNotice(`Resultado listo: ${body}`);
+    void saveGroupState({ rouletteHistory: [{ ...r, createdAt: new Date().toISOString() }] }).catch(() =>
+      setNotice('La tirada se completó, pero no se pudo sincronizar.'),
+    );
   }
   async function spin(
     nextMode: Mode = mode,
@@ -284,8 +286,7 @@ export default function Puerto() {
         {
           name: 'puerto_sortear',
           title: 'Sortear integrantes',
-          description:
-            'Completa una tirada local y agrega su resultado al chat de demostración.',
+          description: 'Completa una tirada y guarda su resultado para el grupo.',
           inputSchema: {
             type: 'object',
             properties: {
@@ -391,17 +392,10 @@ export default function Puerto() {
       setProfileStatus('Ingresá un cumpleaños válido con formato DD/MM.');
       return;
     }
-    if (newPassword && newPassword.length < 10) {
-      setProfileStatus(
-        'La nueva contraseña debe tener al menos 10 caracteres.',
-      );
-      return;
-    }
     const updated = {
       ...currentUser,
       username,
       birthday: birth,
-      password: newPassword || currentUser.password,
     };
     setAccounts((previous) =>
       previous.map((account) =>
@@ -412,27 +406,7 @@ export default function Puerto() {
     void saveMember(updated.id, { username: updated.username, birthday: updated.birthday, bio, aiBio, avatar }).catch(() =>
       setProfileStatus('No se pudo guardar el perfil. Revisá tu conexión.'),
     );
-    setNewPassword('');
     setProfileStatus('Perfil guardado y sincronizado.');
-  }
-
-  function signIn(e: FormEvent) {
-    e.preventDefault();
-    const account = verifyDemoCredentials(
-      accounts,
-      loginIdentity,
-      loginPassword,
-    );
-    if (!account) {
-      setLoginStatus('Usuario, correo o contraseña incorrectos.');
-      return;
-    }
-    setCurrentUser(account);
-    setProfileSubjectId(account.id);
-    setUsername(account.username);
-    setBirth(account.birthday);
-    setLoginPassword('');
-    setLoginStatus('');
   }
   async function signInGoogle() {
     try {
@@ -485,7 +459,7 @@ export default function Puerto() {
     const reader = new FileReader();
     reader.onload = () => {
       setAvatar(String(reader.result));
-      setProfileStatus('Avatar actualizado en esta sesión.');
+      setProfileStatus('Avatar actualizado. Guardá el perfil para sincronizarlo.');
     };
     reader.readAsDataURL(file);
   }
@@ -506,7 +480,7 @@ export default function Puerto() {
           <div className="auth-copy">
             <p className="eyebrow">GRUPO CERRADO</p>
             <h1 id="login-title">Volvé al puerto.</h1>
-            <p>Ingresá con tu usuario o correo vinculado.</p>
+            <p>Ingresá con la cuenta de Google vinculada a tu perfil.</p>
           </div>
           <p className="auth-google-copy">Ingresá con la cuenta de Google que vas a vincular a Puerto App.</p>
           <div className="social-buttons">
@@ -538,8 +512,8 @@ export default function Puerto() {
             </section>
           )}
           <p className="demo-note">
-            <ShieldCheck size={15} aria-hidden="true" /> Demo privada: las
-            acceso protegido por Google y Firebase Authentication.
+            <ShieldCheck size={15} aria-hidden="true" /> Acceso protegido por
+            Google y Firebase Authentication.
           </p>
         </section>
       </main>
@@ -806,7 +780,7 @@ export default function Puerto() {
                   >
                     <DialogTitle>Vos decidís cuándo compartir</DialogTitle>
                     <DialogDescription>
-                      Esta demo muestra tu GPS en OpenStreetMap, que recibe las
+                      El mapa muestra tu GPS en OpenStreetMap, que recibe las
                       coordenadas para dibujar el mapa. No las envía al grupo.
                       Podés desactivarlo en cualquier momento.
                     </DialogDescription>
@@ -816,7 +790,7 @@ export default function Puerto() {
                       lúdica «están teniendo relaciones amorosas».
                     </p>
                     <button className="primary" onClick={startSharing}>
-                      Permitir ubicación en la demo
+                      Permitir ubicación
                     </button>
                     <DialogClose className="secondary-button">
                       Ahora no
@@ -877,18 +851,22 @@ export default function Puerto() {
                     expensePayer,
                     expensePeople,
                   );
-                  setExpenses((previous) => [
+                  const nextExpenses = [
                     {
                       id: crypto.randomUUID(),
                       concept: expenseConcept.trim(),
                       amountCents,
                       payerId: expensePayer,
                       participantIds: expensePeople,
-                      at: new Date(),
+                      at: new Date().toISOString(),
                       shares,
-                    },
-                    ...previous,
-                  ]);
+                    } as Expense,
+                    ...expenses,
+                  ];
+                  setExpenses(nextExpenses);
+                  void saveGroupState({ expenses: nextExpenses }).catch(() =>
+                    setNotice('El gasto se creó, pero no se pudo sincronizar.'),
+                  );
                   setExpenseConcept('');
                   setExpenseAmount('');
                   setNotice('Gasto creado.');
@@ -1006,26 +984,24 @@ export default function Puerto() {
                         ) : currentUser.id === expense.payerId ? (
                           <button
                             type="button"
-                            onClick={() =>
-                              setExpenses((all) =>
-                                all.map((item) =>
-                                  item.id !== expense.id
-                                    ? item
-                                    : {
-                                        ...item,
-                                        shares: item.shares.map((itemShare) =>
-                                          itemShare.debtorId === share.debtorId
-                                            ? {
-                                                ...itemShare,
-                                                paidAt:
-                                                  new Date().toISOString(),
-                                              }
-                                            : itemShare,
-                                        ),
-                                      },
-                                ),
-                              )
-                            }
+                            onClick={() => {
+                              const nextExpenses = expenses.map((item) =>
+                                item.id !== expense.id
+                                  ? item
+                                  : {
+                                      ...item,
+                                      shares: item.shares.map((itemShare) =>
+                                        itemShare.debtorId === share.debtorId
+                                          ? { ...itemShare, paidAt: new Date().toISOString() }
+                                          : itemShare,
+                                      ),
+                                    },
+                              );
+                              setExpenses(nextExpenses);
+                              void saveGroupState({ expenses: nextExpenses }).catch(() =>
+                                setNotice('No se pudo sincronizar el pago.'),
+                              );
+                            }}
                           >
                             Marcar pagado
                           </button>
@@ -1143,21 +1119,6 @@ export default function Puerto() {
                   <Cake size={13} className="inline" /> Para que el grupo se
                   acuerde de tu día. Tu año es privado.
                 </p>
-                <label htmlFor="new-password">Nueva contraseña</label>
-                <input
-                  id="new-password"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  disabled={!isOwnProfile}
-                  minLength={10}
-                  autoComplete="new-password"
-                  placeholder="Dejala vacía para conservarla"
-                />
-                <p className="support">
-                  Mínimo 10 caracteres. En producción se guarda con hash
-                  Argon2id.
-                </p>
                 <button className="primary" type="submit" disabled={!isOwnProfile}>
                   Guardar perfil
                 </button>
@@ -1172,7 +1133,7 @@ export default function Puerto() {
                   <div>
                     <strong>Google</strong>
                     <small>
-                      {linkedGoogle ? 'Vinculada en esta demo' : 'No vinculada'}
+                      {linkedGoogle ? 'Cuenta vinculada' : 'No vinculada'}
                     </small>
                   </div>
                   <button
@@ -1199,7 +1160,7 @@ export default function Puerto() {
                   <div>
                     <strong>Apple</strong>
                     <small>
-                      {linkedApple ? 'Vinculada en esta demo' : 'No vinculada'}
+                      {linkedApple ? 'Vinculada en esta app' : 'No vinculada'}
                     </small>
                   </div>
                   <button
@@ -1250,7 +1211,7 @@ export default function Puerto() {
                       <DialogTitle>Configuración del grupo</DialogTitle>
                       <DialogDescription>
                         Acceso de Denis, administrador. Los cambios afectan esta
-                        demo local.
+                        grupo.
                       </DialogDescription>
                       <label htmlFor="radius">
                         Radio de proximidad (10–500 m)
