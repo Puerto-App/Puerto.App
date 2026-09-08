@@ -1,9 +1,98 @@
 export type Mode = 'teams3' | 'teams2' | 'single';
+export type SeedAccount = {
+  id: string;
+  displayName: string;
+  username: string;
+  email: string;
+  birthday: string;
+  password: string;
+  role: 'admin' | 'member';
+};
+export const SEED_ACCOUNTS: readonly SeedAccount[] = [
+  {
+    id: 'denis',
+    displayName: 'Denis',
+    username: 'Denis',
+    email: 'denis@puertoapp.local',
+    birthday: '24/08',
+    password: 'denis123',
+    role: 'admin',
+  },
+  {
+    id: 'drizza',
+    displayName: 'Drizza',
+    username: 'Drizza',
+    email: 'drizza@puertoapp.local',
+    birthday: '01/11',
+    password: 'drizza123',
+    role: 'member',
+  },
+  {
+    id: 'castro',
+    displayName: 'Castro',
+    username: 'Castro',
+    email: 'castro@puertoapp.local',
+    birthday: '13/07',
+    password: 'castro123',
+    role: 'member',
+  },
+  {
+    id: 'alan',
+    displayName: 'Alan',
+    username: 'Alan',
+    email: 'alan@puertoapp.local',
+    birthday: '16/07',
+    password: 'alan123',
+    role: 'member',
+  },
+  {
+    id: 'maxi',
+    displayName: 'Maxi',
+    username: 'Maxi',
+    email: 'maxi@puertoapp.local',
+    birthday: '29/09',
+    password: 'maxi123',
+    role: 'member',
+  },
+  {
+    id: 'alca',
+    displayName: 'Alca',
+    username: 'Alca',
+    email: 'alca@puertoapp.local',
+    birthday: '26/12',
+    password: 'alca123',
+    role: 'member',
+  },
+];
+export function verifyDemoCredentials(
+  accounts: readonly SeedAccount[],
+  identifier: string,
+  password: string,
+): SeedAccount | null {
+  const normalized = identifier.trim().toLowerCase();
+  return (
+    accounts.find(
+      (account) =>
+        (account.username.toLowerCase() === normalized ||
+          account.email.toLowerCase() === normalized) &&
+        account.password === password,
+    ) ?? null
+  );
+}
+export function isValidBirthday(value: string): boolean {
+  const match = /^(\d{2})\/(\d{2})$/.exec(value);
+  if (!match) return false;
+  const day = Number(match[1]),
+    month = Number(match[2]);
+  if (month < 1 || month > 12) return false;
+  return day >= 1 && day <= new Date(2024, month, 0).getDate();
+}
 export type Draw = {
   mode: Mode;
   eligible: string[];
   teams: string[][];
   substitutes: string[];
+  substituteAssignments: { member: string; teamIndex: number }[];
   winner: string | null;
 };
 export function randomInt(max: number): number {
@@ -38,17 +127,33 @@ export function draw(ids: string[], mode: Mode, rng = randomInt): Draw {
       eligible: [...ids],
       teams: [],
       substitutes: [],
+      substituteAssignments: [],
       winner: pool[0],
     };
-  const count = Math.floor(pool.length / size),
-    teams = Array.from({ length: count }, (_, i) =>
-      pool.slice(i * size, (i + 1) * size),
+  const count = Math.floor(pool.length / size);
+  const teams = Array.from({ length: count }, (_, i) =>
+    pool.slice(i * size, (i + 1) * size),
+  );
+  const substitutes = pool.slice(count * size);
+  const availableTeams = teams.map((_, teamIndex) => teamIndex);
+  const substituteAssignments = substitutes.map((member) => {
+    const smallest = Math.min(...availableTeams.map((i) => teams[i].length));
+    const candidates = availableTeams.filter(
+      (i) => teams[i].length === smallest,
     );
+    const choice = rng(candidates.length);
+    if (!Number.isInteger(choice) || choice < 0 || choice >= candidates.length)
+      throw new Error('RNG inválido');
+    const teamIndex = candidates[choice];
+    teams[teamIndex].push(member);
+    return { member, teamIndex };
+  });
   return {
     mode,
     eligible: [...ids],
     teams,
-    substitutes: pool.slice(count * size),
+    substitutes,
+    substituteAssignments,
     winner: null,
   };
 }

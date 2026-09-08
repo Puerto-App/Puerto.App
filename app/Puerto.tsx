@@ -20,6 +20,12 @@ import {
   Navigation,
   Trash2,
   CheckCheck,
+  LogIn,
+  Link2,
+  Unlink,
+  KeyRound,
+  Mail,
+  LogOut,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -33,9 +39,20 @@ import {
 } from '@/components/ui/dialog';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { NativeSelect } from '@/components/ui/native-select';
-import { draw, type Mode, type Draw } from '@/lib/domain';
+import {
+  draw,
+  type Mode,
+  type Draw,
+  type SeedAccount as Account,
+  SEED_ACCOUNTS,
+  verifyDemoCredentials,
+  isValidBirthday,
+} from '@/lib/domain';
 
-const members = ['Denis', 'Nico', 'Fran', 'Santi', 'Tomi', 'Lucas'];
+const seedAccounts: Account[] = SEED_ACCOUNTS.map((account) => ({
+  ...account,
+}));
+const members = seedAccounts.map((account) => account.displayName);
 const colors = [
   '#0A84FF',
   '#5E5CE6',
@@ -67,16 +84,18 @@ function Avatar({
   name,
   large = false,
   src,
+  online = false,
 }: {
   name: string;
   large?: boolean;
   src?: string;
+  online?: boolean;
 }) {
   return (
     <span
-      className={`avatar ${large ? 'large-avatar' : ''} ${name === 'Denis' ? 'online' : ''}`}
+      className={`avatar ${large ? 'large-avatar' : ''} ${online ? 'online' : ''}`}
     >
-      {src ? <img src={src} alt="Avatar de Denis" /> : name[0]}
+      {src ? <img src={src} alt={`Avatar de ${name}`} /> : name[0]}
     </span>
   );
 }
@@ -94,18 +113,43 @@ function Result({ result }: { result: Draw }) {
           <div className="team" key={i}>
             <small>Equipo {i + 1}</small>
             <strong>{team.join(' · ')}</strong>
+            {result.substituteAssignments.some(
+              (assignment) => assignment.teamIndex === i,
+            ) && (
+              <span className="substitute-note">
+                +{' '}
+                {result.substituteAssignments
+                  .filter((assignment) => assignment.teamIndex === i)
+                  .map((assignment) => assignment.member)
+                  .join(', ')}{' '}
+                como suplente
+              </span>
+            )}
           </div>
         ))
       )}
       {result.substitutes.length > 0 && (
         <p className="reserve">
-          <strong>Suplentes:</strong> {result.substitutes.join(' · ')}
+          <strong>Suplentes asignados:</strong>{' '}
+          {result.substituteAssignments
+            .map(
+              (assignment) =>
+                `${assignment.member} → Equipo ${assignment.teamIndex + 1}`,
+            )
+            .join(' · ')}
         </p>
       )}
     </div>
   );
 }
 export default function Puerto() {
+  const [accounts, setAccounts] = useState(seedAccounts);
+  const [currentUser, setCurrentUser] = useState<Account | null>(null);
+  const [loginIdentity, setLoginIdentity] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginStatus, setLoginStatus] = useState('');
+  const [linkedGoogle, setLinkedGoogle] = useState(false);
+  const [linkedApple, setLinkedApple] = useState(false);
   const [tab, setTab] = useState<keyof typeof titles>('ruleta');
   const [selected, setSelected] = useState(members),
     [mode, setMode] = useState<Mode>('teams3');
@@ -115,7 +159,9 @@ export default function Puerto() {
   const [messages, setMessages] = useState<Message[]>([]),
     [text, setText] = useState('');
   const [bio, setBio] = useState(''),
-    [birth, setBirth] = useState(''),
+    [birth, setBirth] = useState('24/08'),
+    [username, setUsername] = useState('Denis'),
+    [newPassword, setNewPassword] = useState(''),
     [avatar, setAvatar] = useState(''),
     [profileStatus, setProfileStatus] = useState('');
   const [theme, setTheme] = useState('system'),
@@ -173,8 +219,8 @@ export default function Puerto() {
       : r.teams
           .map((team, i) => `Equipo ${i + 1}: ${team.join(', ')}`)
           .join(' · ') +
-        (r.substitutes.length
-          ? ` · Suplentes: ${r.substitutes.join(', ')}`
+        (r.substituteAssignments.length
+          ? ` · Suplentes: ${r.substituteAssignments.map((assignment) => `${assignment.member} al equipo ${assignment.teamIndex + 1}`).join(', ')}`
           : '');
     setMessages((prev) => [
       ...prev,
@@ -332,15 +378,65 @@ export default function Puerto() {
   }
   function saveProfile(e: FormEvent) {
     e.preventDefault();
-    if (
-      birth &&
-      (!/^\d{4}-\d{2}-\d{2}$/.test(birth) ||
-        new Date(`${birth}T12:00:00`).getTime() > Date.now())
-    ) {
-      setProfileStatus('Ingresá una fecha de nacimiento válida, no futura.');
+    if (!currentUser) return;
+    if (!/^[A-Za-z0-9._-]{3,24}$/.test(username)) {
+      setProfileStatus(
+        'El usuario debe tener entre 3 y 24 caracteres válidos.',
+      );
       return;
     }
+    if (
+      accounts.some(
+        (account) =>
+          account.id !== currentUser.id &&
+          account.username.toLowerCase() === username.toLowerCase(),
+      )
+    ) {
+      setProfileStatus('Ese nombre de usuario ya está en uso.');
+      return;
+    }
+    if (!isValidBirthday(birth)) {
+      setProfileStatus('Ingresá un cumpleaños válido con formato DD/MM.');
+      return;
+    }
+    if (newPassword && newPassword.length < 10) {
+      setProfileStatus(
+        'La nueva contraseña debe tener al menos 10 caracteres.',
+      );
+      return;
+    }
+    const updated = {
+      ...currentUser,
+      username,
+      birthday: birth,
+      password: newPassword || currentUser.password,
+    };
+    setAccounts((previous) =>
+      previous.map((account) =>
+        account.id === updated.id ? updated : account,
+      ),
+    );
+    setCurrentUser(updated);
+    setNewPassword('');
     setProfileStatus('Perfil actualizado en esta sesión de demostración.');
+  }
+
+  function signIn(e: FormEvent) {
+    e.preventDefault();
+    const account = verifyDemoCredentials(
+      accounts,
+      loginIdentity,
+      loginPassword,
+    );
+    if (!account) {
+      setLoginStatus('Usuario, correo o contraseña incorrectos.');
+      return;
+    }
+    setCurrentUser(account);
+    setUsername(account.username);
+    setBirth(account.birthday);
+    setLoginPassword('');
+    setLoginStatus('');
   }
   async function chooseAvatar(file?: File) {
     if (!file) return;
@@ -358,6 +454,92 @@ export default function Puerto() {
     };
     reader.readAsDataURL(file);
   }
+  if (!currentUser) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-card" aria-labelledby="login-title">
+          <div className="auth-brand">
+            <span className="brand-icon">
+              <Anchor size={23} aria-hidden="true" />
+            </span>
+            <strong>
+              puerto<span>app</span>
+            </strong>
+          </div>
+          <div className="auth-copy">
+            <p className="eyebrow">GRUPO CERRADO</p>
+            <h1 id="login-title">Volvé al puerto.</h1>
+            <p>Ingresá con tu usuario o correo vinculado.</p>
+          </div>
+          <form className="auth-form" onSubmit={signIn}>
+            <label htmlFor="login-identity">Usuario o correo electrónico</label>
+            <div className="input-with-icon">
+              <Mail size={17} aria-hidden="true" />
+              <input
+                id="login-identity"
+                value={loginIdentity}
+                onChange={(e) => setLoginIdentity(e.target.value)}
+                autoComplete="username"
+                required
+              />
+            </div>
+            <label htmlFor="login-password">Contraseña</label>
+            <div className="input-with-icon">
+              <KeyRound size={17} aria-hidden="true" />
+              <input
+                id="login-password"
+                type="password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </div>
+            <button className="primary" type="submit">
+              <LogIn size={18} aria-hidden="true" />
+              Ingresar
+            </button>
+            <p className="form-status" role="alert">
+              {loginStatus}
+            </p>
+          </form>
+          <div className="auth-divider">
+            <span>o continuá con</span>
+          </div>
+          <div className="social-buttons">
+            <button
+              type="button"
+              onClick={() =>
+                setLoginStatus(
+                  'Google OAuth requiere configurar el cliente y su callback en el backend de producción.',
+                )
+              }
+            >
+              <span className="provider-g">G</span>Google
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setLoginStatus(
+                  'Sign in with Apple requiere Services ID, clave privada y dominio verificado.',
+                )
+              }
+            >
+              <span className="provider-apple" aria-hidden="true">
+                ●
+              </span>
+              Apple
+            </button>
+          </div>
+          <p className="demo-note">
+            <ShieldCheck size={15} aria-hidden="true" /> Demo privada: las
+            credenciales iniciales se validan sólo en este navegador. Google y
+            Apple muestran el flujo pendiente de configuración.
+          </p>
+        </section>
+      </main>
+    );
+  }
   return (
     <main className="app-shell">
       <header className="brand">
@@ -367,7 +549,17 @@ export default function Puerto() {
         <strong>
           puerto<span>app</span>
         </strong>
-        <span className="demo-badge">Demo · datos locales</span>
+        <button
+          className="logout-button"
+          onClick={() => {
+            stopSharing();
+            setCurrentUser(null);
+            setLoginIdentity('');
+          }}
+        >
+          <LogOut size={15} aria-hidden="true" />
+          Salir
+        </button>
       </header>
       <Tabs
         value={tab}
@@ -479,13 +671,19 @@ export default function Puerto() {
                 </div>
                 <p className="support">Sólo participan los que actives.</p>
                 <div className="member-list">
-                  {members.map((name, i) => (
+                  {members.map((name) => (
                     <div className="member-row" key={name}>
-                      <Avatar name={name} src={i === 0 ? avatar : undefined} />
+                      <Avatar
+                        name={name}
+                        src={
+                          name === currentUser.displayName ? avatar : undefined
+                        }
+                        online={name === currentUser.displayName}
+                      />
                       <div>
                         <strong>
                           {name}
-                          {i === 0 ? ' (vos)' : ''}
+                          {name === currentUser.displayName ? ' (vos)' : ''}
                         </strong>
                         <small>
                           {selected.includes(name)
@@ -519,7 +717,7 @@ export default function Puerto() {
                 </div>
               </div>
               <p className="footnote">
-                Cinco nombres de ejemplo. Denis es el administrador.
+                Grupo cerrado: Denis, Drizza, Castro, Alan, Maxi y Alca.
               </p>
             </aside>
           </div>
@@ -609,11 +807,14 @@ export default function Puerto() {
                 </div>
                 {members.map((name) => (
                   <div className="member-row" key={name}>
-                    <Avatar name={name} />
+                    <Avatar
+                      name={name}
+                      online={name === currentUser.displayName}
+                    />
                     <div>
                       <strong>{name}</strong>
                       <small>
-                        {name === 'Denis' && currentGps
+                        {name === currentUser.displayName && currentGps
                           ? 'Ubicación local activa'
                           : 'Sin ubicación compartida'}
                       </small>
@@ -691,7 +892,7 @@ export default function Puerto() {
                   ) : (
                     <div className="bubble">
                       <strong>
-                        Denis <span>vos</span>
+                        {currentUser.displayName} <span>vos</span>
                       </strong>
                       <p>
                         {message.deleted
@@ -777,11 +978,16 @@ export default function Puerto() {
         <TabsContent value="perfil">
           <div className="profile-grid">
             <section className="card profile-summary">
-              <Avatar name="Denis" large src={avatar} />
-              <h2>Denis</h2>
+              <Avatar
+                name={currentUser.displayName}
+                large
+                src={avatar}
+                online
+              />
+              <h2>{currentUser.displayName}</h2>
               <span className="admin-badge">
                 <ShieldCheck size={13} />
-                Administrador
+                {currentUser.role === 'admin' ? 'Administrador' : 'Miembro'}
               </span>
               <p>{bio || 'Todavía no agregaste una descripción.'}</p>
               <label className="upload-label">
@@ -797,13 +1003,20 @@ export default function Puerto() {
             <div>
               <form className="card profile-form" onSubmit={saveProfile}>
                 <h2>Tu perfil</h2>
-                <label htmlFor="identity">Identidad del grupo</label>
-                <div className="locked-field">
-                  <input id="identity" value="Denis" readOnly />
-                  <ShieldCheck size={17} />
+                <label htmlFor="identity">Nombre de usuario</label>
+                <div className="locked-field editable-field">
+                  <input
+                    id="identity"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    autoComplete="username"
+                    required
+                  />
+                  <UserRound size={17} />
                 </div>
                 <p className="support">
-                  Vinculada a tu cuenta. No se puede cambiar.
+                  Podés cambiarlo; tu identidad interna y tus mensajes siguen
+                  siendo los mismos.
                 </p>
                 <label htmlFor="bio">Descripción / Bio</label>
                 <textarea
@@ -815,17 +1028,33 @@ export default function Puerto() {
                   rows={3}
                 />
                 <small className="char-count">{bio.length}/280</small>
-                <label htmlFor="birth">Fecha de nacimiento</label>
+                <label htmlFor="birth">Cumpleaños (DD/MM)</label>
                 <input
                   id="birth"
-                  type="date"
+                  type="text"
                   value={birth}
-                  max={new Date().toLocaleDateString('en-CA')}
+                  inputMode="numeric"
+                  pattern="[0-9]{2}/[0-9]{2}"
+                  placeholder="24/08"
                   onChange={(e) => setBirth(e.target.value)}
                 />
                 <p className="support">
                   <Cake size={13} className="inline" /> Para que el grupo se
                   acuerde de tu día. Tu año es privado.
+                </p>
+                <label htmlFor="new-password">Nueva contraseña</label>
+                <input
+                  id="new-password"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  minLength={10}
+                  autoComplete="new-password"
+                  placeholder="Dejala vacía para conservarla"
+                />
+                <p className="support">
+                  Mínimo 10 caracteres. En producción se guarda con hash
+                  Argon2id.
                 </p>
                 <button className="primary" type="submit">
                   Guardar perfil
@@ -836,6 +1065,58 @@ export default function Puerto() {
               </form>
               <section className="card settings-card">
                 <h2>Ajustes</h2>
+                <div className="linked-account">
+                  <span className="provider-g">G</span>
+                  <div>
+                    <strong>Google</strong>
+                    <small>
+                      {linkedGoogle ? 'Vinculada en esta demo' : 'No vinculada'}
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLinkedGoogle((value) => !value)}
+                  >
+                    {linkedGoogle ? (
+                      <>
+                        <Unlink size={15} />
+                        Desvincular
+                      </>
+                    ) : (
+                      <>
+                        <Link2 size={15} />
+                        Vincular
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="linked-account">
+                  <span className="provider-apple" aria-hidden="true">
+                    ●
+                  </span>
+                  <div>
+                    <strong>Apple</strong>
+                    <small>
+                      {linkedApple ? 'Vinculada en esta demo' : 'No vinculada'}
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLinkedApple((value) => !value)}
+                  >
+                    {linkedApple ? (
+                      <>
+                        <Unlink size={15} />
+                        Desvincular
+                      </>
+                    ) : (
+                      <>
+                        <Link2 size={15} />
+                        Vincular
+                      </>
+                    )}
+                  </button>
+                </div>
                 <div className="setting-row">
                   <span className="setting-icon purple">
                     <SunMoon size={17} />
@@ -851,57 +1132,59 @@ export default function Puerto() {
                     <option value="dark">Oscura</option>
                   </NativeSelect>
                 </div>
-                <Dialog>
-                  <DialogTrigger className="setting-row setting-trigger">
-                    <span className="setting-icon blue">
-                      <ShieldCheck size={17} />
-                    </span>
-                    <span>Configuración del grupo</span>
-                    <ChevronRight size={18} />
-                  </DialogTrigger>
-                  <DialogContent
-                    showCloseButton={false}
-                    className="puerto-dialog"
-                  >
-                    <DialogTitle>Configuración del grupo</DialogTitle>
-                    <DialogDescription>
-                      Acceso de Denis, administrador. Los cambios afectan esta
-                      demo local.
-                    </DialogDescription>
-                    <label htmlFor="radius">
-                      Radio de proximidad (10–500 m)
-                    </label>
-                    <input
-                      id="radius"
-                      type="number"
-                      min={10}
-                      max={500}
-                      value={radius}
-                      onChange={(e) => {
-                        const n = Number(e.target.value);
-                        if (Number.isInteger(n) && n >= 10 && n <= 500)
-                          setRadius(n);
-                      }}
-                    />
-                    <label htmlFor="timezone">Zona horaria del grupo</label>
-                    <NativeSelect
-                      id="timezone"
-                      value={timezone}
-                      onChange={(e) => setTimezone(e.target.value)}
+                {currentUser.role === 'admin' && (
+                  <Dialog>
+                    <DialogTrigger className="setting-row setting-trigger">
+                      <span className="setting-icon blue">
+                        <ShieldCheck size={17} />
+                      </span>
+                      <span>Configuración del grupo</span>
+                      <ChevronRight size={18} />
+                    </DialogTrigger>
+                    <DialogContent
+                      showCloseButton={false}
+                      className="puerto-dialog"
                     >
-                      <option value="America/Argentina/Buenos_Aires">
-                        Buenos Aires
-                      </option>
-                      <option value="America/Montevideo">Montevideo</option>
-                      <option value="Europe/Madrid">Madrid</option>
-                    </NativeSelect>
-                    <p>
-                      Cumpleaños a las 00:00 de esta zona. El cron y las
-                      notificaciones se ejecutarán al conectar el backend.
-                    </p>
-                    <DialogClose className="primary">Listo</DialogClose>
-                  </DialogContent>
-                </Dialog>
+                      <DialogTitle>Configuración del grupo</DialogTitle>
+                      <DialogDescription>
+                        Acceso de Denis, administrador. Los cambios afectan esta
+                        demo local.
+                      </DialogDescription>
+                      <label htmlFor="radius">
+                        Radio de proximidad (10–500 m)
+                      </label>
+                      <input
+                        id="radius"
+                        type="number"
+                        min={10}
+                        max={500}
+                        value={radius}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          if (Number.isInteger(n) && n >= 10 && n <= 500)
+                            setRadius(n);
+                        }}
+                      />
+                      <label htmlFor="timezone">Zona horaria del grupo</label>
+                      <NativeSelect
+                        id="timezone"
+                        value={timezone}
+                        onChange={(e) => setTimezone(e.target.value)}
+                      >
+                        <option value="America/Argentina/Buenos_Aires">
+                          Buenos Aires
+                        </option>
+                        <option value="America/Montevideo">Montevideo</option>
+                        <option value="Europe/Madrid">Madrid</option>
+                      </NativeSelect>
+                      <p>
+                        Cumpleaños a las 00:00 de esta zona. El cron y las
+                        notificaciones se ejecutarán al conectar el backend.
+                      </p>
+                      <DialogClose className="primary">Listo</DialogClose>
+                    </DialogContent>
+                  </Dialog>
+                )}
               </section>
             </div>
           </div>

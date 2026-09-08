@@ -7,8 +7,11 @@ import {
   proximityEvent,
   birthdayMatches,
   type Point,
+  SEED_ACCOUNTS,
+  verifyDemoCredentials,
+  isValidBirthday,
 } from './domain.ts';
-const ids = ['Denis', 'Nico', 'Fran', 'Santi', 'Tomi', 'Lucas'];
+const ids = ['Denis', 'Drizza', 'Castro', 'Alan', 'Maxi', 'Alca'];
 test('Ruleta: cada tamaño y filtro conserva exactamente los elegibles', () => {
   for (let mask = 0; mask < 64; mask++)
     for (const mode of ['teams2', 'teams3', 'single'] as const) {
@@ -24,16 +27,72 @@ test('Ruleta: cada tamaño y filtro conserva exactamente los elegibles', () => {
         if (mode === 'single') {
           assert.ok(pool.includes(r.winner!));
           assert.equal(r.substitutes.length, 0);
+          assert.equal(r.substituteAssignments.length, 0);
         } else {
-          assert.ok(r.teams.every((t) => t.length === min));
+          assert.deepEqual(r.teams.flat().sort(), [...pool].sort());
+          assert.equal(new Set(r.teams.flat()).size, pool.length);
           assert.deepEqual(
-            [...r.teams.flat(), ...r.substitutes].sort(),
-            [...pool].sort(),
+            r.substituteAssignments.map((a) => a.member).sort(),
+            [...r.substitutes].sort(),
+          );
+          assert.ok(
+            Math.max(...r.teams.map((t) => t.length)) -
+              Math.min(...r.teams.map((t) => t.length)) <=
+              1,
           );
         }
       }
     }
   assert.throws(() => draw(['a', 'a'], 'single'));
+});
+test('Suplentes se integran una vez y se asignan sólo a equipos completos', () => {
+  const sequence = [0, 0, 0, 0, 0, 1];
+  const r = draw(ids.slice(0, 5), 'teams2', () => sequence.shift() ?? 0);
+  assert.equal(r.teams.length, 2);
+  assert.deepEqual(r.teams.map((t) => t.length).sort(), [2, 3]);
+  assert.equal(r.substitutes.length, 1);
+  assert.equal(r.substituteAssignments[0].member, r.substitutes[0]);
+  assert.ok(
+    r.teams[r.substituteAssignments[0].teamIndex].includes(r.substitutes[0]),
+  );
+});
+test('Las seis cuentas iniciales ingresan por username o email', () => {
+  assert.equal(SEED_ACCOUNTS.length, 6);
+  for (const account of SEED_ACCOUNTS) {
+    assert.equal(
+      verifyDemoCredentials(
+        SEED_ACCOUNTS,
+        account.username.toUpperCase(),
+        account.password,
+      )?.id,
+      account.id,
+    );
+    assert.equal(
+      verifyDemoCredentials(
+        SEED_ACCOUNTS,
+        account.email.toUpperCase(),
+        account.password,
+      )?.id,
+      account.id,
+    );
+    assert.equal(
+      verifyDemoCredentials(SEED_ACCOUNTS, account.username, 'incorrecta'),
+      null,
+    );
+  }
+  assert.equal(
+    SEED_ACCOUNTS.filter((account) => account.role === 'admin')
+      .map((account) => account.id)
+      .join(),
+    'denis',
+  );
+});
+test('Cumpleaños DD/MM valida calendario', () => {
+  for (const account of SEED_ACCOUNTS)
+    assert.equal(isValidBirthday(account.birthday), true);
+  assert.equal(isValidBirthday('29/02'), true);
+  for (const value of ['30/02', '31/04', '00/12', '01/13', '1/1'])
+    assert.equal(isValidBirthday(value), false);
 });
 const now = 100000;
 const point = (id: string, m: number, extra: Partial<Point> = {}): Point => ({

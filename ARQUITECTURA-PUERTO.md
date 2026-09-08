@@ -2,11 +2,11 @@
 
 ## Alcance y decisiones
 
-Grupo cerrado de seis cuentas. Denis es el administrador inicial; los otros cinco nombres de la interfaz son ejemplos reemplazables al provisionar las cuentas. Se entrega frontend React de demostración y diseño del backend. La demo no autentica personas, no transmite coordenadas, no envía push y no simula confirmaciones de lectura de terceros. Los mensajes y sorteos de la demo viven en memoria; las preferencias de apariencia pueden persistir en este dispositivo.
+Grupo cerrado de seis cuentas: Denis, Drizza, Castro, Alan, Maxi y Alca. Denis es el administrador inicial. Se entrega frontend React de demostración y diseño del backend. La demo valida las credenciales iniciales sólo en memoria del navegador; no constituye autenticación segura, no ejecuta OAuth, no transmite coordenadas al grupo, no envía push y no simula confirmaciones de lectura de terceros. Los mensajes, perfiles y sorteos viven en memoria; la apariencia puede persistir en este dispositivo.
 
 Stack propuesto para producción: React para web; API TypeScript, PostgreSQL, WebSocket para chat/eventos y worker de notificaciones con cola transaccional. Para tracking móvil continuo en segundo plano, cliente React Native con integración de ubicación del sistema operativo. Una web abierta puede usar watchPosition, pero no garantiza GPS cuando está cerrada o suspendida.
 
-Decisiones donde la especificación no define comportamiento: los equipos son completos, de tamaño exacto 2 o 3; los sobrantes quedan explícitamente como suplentes, elegidos al azar en cada tirada. El grupo usa una zona IANA configurable (valor inicial America/Argentina/Buenos_Aires). Un cumpleaños del 29/02 se celebra sólo el 29/02; cualquier política alternativa debe configurarse. La proximidad exige distancia máxima entre cada par ≤ radio, evitando cadenas A–B–C donde A y C están lejos. Pueden existir encuentros superpuestos; se anuncian conjuntos máximos, nunca subgrupos de un encuentro mayor.
+Decisiones donde la especificación no define comportamiento: primero se forman el máximo de equipos base completos de tamaño 2 o 3; cada remanente se marca como suplente y se integra una sola vez al equipo actualmente más pequeño, elegido al azar entre los empatados. Así la diferencia final de tamaños no supera uno cuando existen varios equipos. El grupo usa una zona IANA configurable (valor inicial America/Argentina/Buenos_Aires). Un cumpleaños del 29/02 se celebra sólo el 29/02; cualquier política alternativa debe configurarse. La proximidad exige distancia máxima entre cada par ≤ radio, evitando cadenas A–B–C donde A y C están lejos. Pueden existir encuentros superpuestos; se anuncian conjuntos máximos, nunca subgrupos de un encuentro mayor.
 
 ## 1. Modelo de datos
 
@@ -15,10 +15,13 @@ Todos los identificadores son UUID, los instantes timestamptz UTC y las fechas c
 | Entidad | Campos y tipos | Relaciones / restricciones |
 |---|---|---|
 | Group | id uuid PK; name varchar(80); timezone varchar(64); proximity_radius_m integer default 50; expected_size smallint default 6; created_at timestamptz | Radio entre 10 y 500 m; zona IANA válida; seis membresías activas como invariante transaccional |
-| User | id uuid PK; auth_subject text UNIQUE NOT NULL; group_id uuid FK; public_name varchar(40) NOT NULL; role enum(admin,member); bio varchar(280); birth_date date NULL; avatar_object_key text NULL; location_consent_at timestamptz NULL; location_revoked_at timestamptz NULL; active boolean; created_at timestamptz | UNIQUE(group_id, public_name); auth_subject, public_name y group_id inmutables vía trigger y API; fecha no futura; Denis se provisiona con role=admin por ID verificado |
+| User | id uuid PK; group_id uuid FK; public_name varchar(80) NOT NULL; username citext NOT NULL; email citext NOT NULL; role enum(admin,member); bio varchar(280); birth_day smallint; birth_month smallint; avatar_object_key text NULL; location_consent_at timestamptz NULL; location_revoked_at timestamptz NULL; active boolean; created_at timestamptz; updated_at timestamptz | UNIQUE(username), UNIQUE(email), UNIQUE(group_id,public_name); username y email normalizados y modificables por el propietario; id, group_id y role no modificables por perfil; día/mes válidos; Denis se provisiona con role=admin por ID estable |
+| PasswordCredential | user_id uuid PK/FK; password_hash text; algorithm varchar(20) default 'argon2id'; password_changed_at timestamptz; must_change boolean; failed_attempts smallint; locked_until timestamptz NULL | Nunca guardar ni registrar contraseña legible; Argon2id con parámetros versionados; rotación invalida sesiones según política; rate limit por cuenta, IP y dispositivo |
+| ExternalIdentity | id uuid PK; user_id uuid FK; provider enum(google,apple); provider_subject text; provider_email citext NULL; email_verified boolean; display_name_at_link varchar(120) NULL; linked_at timestamptz; last_login_at timestamptz | UNIQUE(provider,provider_subject); una identidad externa pertenece a un solo User; desenlazar exige reautenticación y conservar al menos un método de acceso |
+| Session | id uuid PK; user_id uuid FK; token_hash bytea UNIQUE; created_at timestamptz; expires_at timestamptz; last_seen_at timestamptz; revoked_at timestamptz NULL; device_label text NULL | Cookie HttpOnly, Secure, SameSite=Lax; rotación y revocación por dispositivo; guardar sólo hash del token |
 | LocationLog | id uuid PK; user_id uuid FK; latitude double precision; longitude double precision; accuracy_m real; captured_at timestamptz; received_at timestamptz; sequence bigint | Latitud [-90,90], longitud [-180,180], accuracy ≥ 0; UNIQUE(user_id,sequence); índice(user_id,captured_at DESC); retención recomendada 24 h |
 | ChatMessage | id uuid PK; group_id uuid FK; author_id uuid FK NULL; kind enum(text,proximity,birthday,roulette,moderation); body text; event_id uuid FK NULL; roulette_session_id uuid FK NULL; created_at timestamptz; edited_at timestamptz NULL; deleted_at timestamptz NULL; client_nonce uuid NULL | author requerido en text y NULL para sistema; cuerpo 1–4000 caracteres; UNIQUE(author_id,client_nonce); UNIQUE(event_id); texto escapado, sin HTML ejecutable |
-| RouletteSession | id uuid PK; group_id uuid FK; created_by uuid FK; mode enum(teams2,teams3,single); eligible_user_ids uuid[]; excluded_user_ids uuid[]; teams jsonb; substitutes uuid[]; winner_id uuid FK NULL; algorithm_version text; created_at timestamptz; request_key uuid | Snapshot de miembros únicos y activos; elegibles/excluidos particionan la membresía; UNIQUE(group_id,created_by,request_key); equipos sin duplicados y sólo elegibles; single tiene un ganador |
+| RouletteSession | id uuid PK; group_id uuid FK; created_by uuid FK; mode enum(teams2,teams3,single); eligible_user_ids uuid[]; excluded_user_ids uuid[]; teams jsonb; substitutes jsonb; winner_id uuid FK NULL; algorithm_version text; created_at timestamptz; request_key uuid | `teams` ya incluye los suplentes integrados; `substitutes` guarda `{userId,teamIndex}` para conservar el rol; cada elegible aparece una vez; UNIQUE(group_id,created_by,request_key); single tiene un ganador |
 | MessageRead | message_id uuid FK; user_id uuid FK; read_at timestamptz | PK(message_id,user_id); sólo se marca si ese usuario puede ver el mensaje; alternativa escalable: cursor de lectura por usuario |
 | SystemEvent | id uuid PK; group_id uuid FK; type enum(proximity,birthday,roulette); dedupe_key text UNIQUE; payload jsonb; created_at timestamptz | Fuente canónica del evento, referencias de usuarios por ID |
 | EventRecipient | event_id uuid FK; user_id uuid FK; channel enum(in_app,push,chat); priority enum(normal,high); read_at timestamptz NULL | PK(event_id,user_id,channel); determina audiencia, incluso dentro de la sala única |
@@ -27,7 +30,28 @@ Todos los identificadores son UUID, los instantes timestamptz UTC y las fechas c
 | EncounterState | id uuid PK; group_id uuid FK; member_key text; state enum(candidate,active,ended); first_seen_at timestamptz; last_seen_at timestamptz; generation integer | UNIQUE(group_id,member_key); clave formada por IDs ordenados; persistencia para sobrevivir reinicios |
 | AuditLog | id uuid PK; actor_id uuid FK; action text; subject_id uuid; before jsonb; after jsonb; created_at timestamptz | Registro de configuración, moderación y cambios administrativos; excluye tokens y GPS exacto |
 
-La fecha de nacimiento completa sólo es visible al propietario y al worker de cumpleaños. El grupo recibe el día/mes y aviso de cumpleaños, no edad ni año. La lectura de GPS se limita a miembros activos del mismo grupo con ubicación compartida. Denis puede moderar mensajes y configurar el grupo, pero no editar identidad inmutable ni suplantar cuentas. Las credenciales y roles no se derivan de escribir «Denis» en un formulario. Alta cerrada mediante seis invitaciones únicas ligadas al proveedor de identidad; no hay registro público.
+Sólo se guarda día y mes de cumpleaños porque el producto no necesita año ni edad. La lectura de GPS se limita a miembros activos del mismo grupo con ubicación compartida. Denis puede moderar mensajes y configurar el grupo, pero no editar roles desde el perfil ni suplantar cuentas. El rol no se deriva de escribir «Denis» en un formulario. No hay registro público: las seis cuentas se cargan por seed y cualquier identidad Google/Apple debe enlazarse a una de ellas después de autenticación o mediante invitación firmada de un solo uso.
+
+### Autenticación híbrida
+
+`POST /auth/password` recibe `{identifier,password}`; busca username o email normalizados, verifica Argon2id en tiempo constante, aplica rate limiting y crea una sesión rotada. `GET /auth/google/start` y `GET /auth/apple/start` generan state, nonce y PKCE cuando corresponda; los callbacks validan state, nonce, issuer, audience, firma y correo verificado antes de resolver `(provider,sub)`. Apple puede devolver el nombre sólo en la primera autorización: se captura una vez, mientras el relay privado se guarda como correo verificable sin asumir que es permanente. Google inicializa `public_name` con el claim `name` sólo al vincular/provisionar por primera vez; nunca sobrescribe cambios posteriores del usuario.
+
+La vinculación comienza desde una sesión existente, exige reautenticación reciente y confirma qué cuenta externa se añadirá. En una transacción se bloquea el usuario y se rechaza `(provider,subject)` si ya pertenece a otra cuenta; así no se crean duplicados. Desvincular exige reautenticación y se rechaza si dejaría la cuenta sin contraseña utilizable ni otra identidad externa. Cambiar username comprueba unicidad case-insensitive. Cambiar contraseña requiere la actual, invalida otras sesiones y registra sólo el evento, nunca secretos. Los correos `.local` del seed no reciben recuperación: deben reemplazarse por correos reales y verificarse antes de habilitar recuperación por email.
+
+La publicación de Sites mantiene una puerta privada propia. Google/Apple y el login de producto necesitan un proveedor OAuth y backend externos confirmados; la demo adjunta presenta los cuatro métodos, valida usuario/correo con contraseña localmente y marca los botones sociales como pendientes de configuración, sin fingir tokens ni callbacks reales.
+
+### Seed idempotente
+
+| public_name / username | birthday | email | password inicial | role |
+|---|---:|---|---|---|
+| Denis | 24/08 | denis@puertoapp.local | denis123 | admin |
+| Drizza | 01/11 | drizza@puertoapp.local | drizza123 | member |
+| Castro | 13/07 | castro@puertoapp.local | castro123 | member |
+| Alan | 16/07 | alan@puertoapp.local | alan123 | member |
+| Maxi | 29/09 | maxi@puertoapp.local | maxi123 | member |
+| Alca | 26/12 | alca@puertoapp.local | alca123 | member |
+
+El seed usa UUIDs fijos, upsert por ID y hashes Argon2id generados al desplegar; no inserta texto plano. `must_change=true` obliga a reemplazar estas contraseñas débiles en el primer acceso real. Reejecutarlo no restablece contraseñas modificadas ni rompe identidades vinculadas.
 
 ## 2. Arquitectura y navegación
 
@@ -68,13 +92,19 @@ sortear(actor, mode, selectedIds, requestKey):
     Fisher–Yates(pool): para i=n-1..1 intercambiar i con randomInt(0,i)
     # randomInt criptográfico uniforme por rejection sampling
     single: winner=pool[0], teams=[], substitutes=[]
-    equipos: formar floor(n/size) equipos; resto = substitutes
+    equipos = los primeros floor(n/size) bloques completos
+    substitutes = remanentes
+    para cada suplente, en orden ya aleatorio:
+      minSize = menor tamaño actual
+      candidates = equipos con minSize
+      teamIndex = candidates[randomInt(candidates.length)]
+      agregar suplente al equipo y guardar {userId, teamIndex}
     persistir snapshot y resultado; no recalcular al terminar animación
     insertar evento, mensaje y outbox para el grupo (una vez)
   devolver resultado; cliente anima hacia ese resultado
 ```
 
-En single, los no seleccionados como ganador siguen siendo participantes elegibles, no suplentes. No se eliminan del snapshot. La animación bloquea nuevos sorteos y cambios de presencia; respeta reduced-motion y usa vibración sólo donde existe. El servidor es autoridad en producción; crypto.getRandomValues en la demo prueba la lógica local sin garantías de auditoría remota.
+En single, los no seleccionados como ganador siguen siendo participantes elegibles, no suplentes. En equipos, la primera mezcla determina equipos base y remanentes; la elección posterior entre los equipos mínimos determina el destino de cada suplente. Cada suplente aparece una sola vez dentro de `teams` y también en la metadata de asignación. La animación bloquea nuevos sorteos y cambios de presencia; respeta reduced-motion y usa vibración sólo donde existe. El servidor es autoridad en producción; crypto.getRandomValues en la demo prueba la lógica local sin garantías de auditoría remota.
 
 ### Proximidad
 
@@ -137,16 +167,16 @@ El planificador apunta a 00:00 de la zona del grupo; el barrido por minuto recup
 
 El frontend adjunto materializa las cuatro vistas con CSS de tokens claro/oscuro, avatares, listas tipo Ajustes, selector segmentado, rueda animada y tab bar inferior. Tema automático por prefers-color-scheme, con selector opcional. Tipografía 34/800 para títulos, 14.5/600 para filas, 12 para metadata; tarjetas de 26 px, filas de 18 px, iconos de 8 px. Los textos secundarios conservan los tokens solicitados; información esencial usa texto primario para mantener contraste.
 
-La pestaña Mapa expone consentimiento y posición real del dispositivo cuando se autoriza. Las ubicaciones de otros usuarios permanecen pendientes de conexión. No se muestran coordenadas ficticias como si fueran seguimiento real. La pestaña Chat permite envíos locales y eventos de ruleta; lecturas reales requieren acknowledgements de otras sesiones. Perfil mantiene nombre inmutable y valida nacimiento. Los ajustes de Denis en la demo sólo configuran la sesión local.
+La pantalla de acceso ofrece username/email con contraseña y presenta Google/Apple con estado de integración explícito. La pestaña Mapa expone consentimiento y posición real del dispositivo cuando se autoriza. Las ubicaciones de otros usuarios permanecen pendientes de conexión. No se muestran coordenadas ficticias como si fueran seguimiento real. La pestaña Chat permite envíos locales y eventos de ruleta; lecturas reales requieren acknowledgements de otras sesiones. Perfil permite cambiar username, contraseña y cumpleaños; vincular/desvincular Google/Apple en la demo sólo cambia estado local. Los ajustes de Denis configuran la sesión local.
 
 En producción sustituir adaptador local por API: resultado de ruleta antes de animar, mensajes confirmados por servidor, reloj de servidor en timestamps, estado de envío con reintento por nonce, permisos GPS revocables y avatar subido mediante URL firmada con límites MIME/tamaño. Ningún cálculo del cliente concede permisos. WebSocket no garantiza push en segundo plano; se necesita proveedor de push con tokens por dispositivo.
 
 ## Validación y criterios de aceptación
 
-- Ruleta: 0 elegibles bloquea todos los modos; 1 permite single; 5 en teams2 produce 2 equipos y 1 suplente; 5 en teams3 produce 1 equipo y 2 suplentes; excluidos jamás aparecen; no hay duplicados; reintento por requestKey devuelve idéntico resultado.
+- Ruleta: 0 elegibles bloquea todos los modos; 1 permite single; 5 en teams2 produce equipos finales 3/2 con un suplente marcado; 5 en teams3 produce un equipo final de 5 con dos suplentes marcados; varios suplentes se asignan sólo entre equipos mínimos; excluidos jamás aparecen; no hay duplicados; reintento por requestKey devuelve idéntico resultado.
 - Ubicación: pares a 49 m sí y a 51 m no para radio 50; exacto límite incluido; cadenas no forman tríos; seis frescos y consentidos activan unión; cinco más un dato vencido no; radio configurable; retiro inmediato por revocación; un evento por encuentro estable.
 - Cumpleaños: medianoche local, fin de año, 29/02, DST, caída/reintento y dos usuarios el mismo día; felicitación al destinatario y aviso a los otros cinco, sin exponer año.
-- Identidad: PATCH de nombre/rol rechazado; usuario ajeno no lee chat ni GPS; un miembro no modera ni cambia radio; Denis autorizado por sujeto autenticado, no por nombre enviado.
+- Identidad: username/email únicos e intercambiables para login; cambio de contraseña invalida otras sesiones; Google y Apple no duplican User al vincular; provider subject no se reasigna; último método no se puede quitar; miembro no modera ni cambia radio; Denis se autoriza por user_id autenticado, no por nombre enviado.
 - Chat: contenido escapado, reconexión sin duplicados, recibos sólo de destinatarios, moderación auditada y eventos filtrados por audiencia.
 - UI: teclado, foco visible, labels, estados vacíos, tema automático, reduced-motion, ancho móvil y zoom. Push/GPS en segundo plano se verifican en dispositivos reales al integrar backend y cliente nativo.
 

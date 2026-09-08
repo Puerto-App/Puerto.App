@@ -1,6 +1,6 @@
 # Puerto App
 
-Frontend React navegable y lógica de dominio, acompañado por `ARQUITECTURA-PUERTO.md` (modelo de datos, servicios, permisos y navegación).
+Frontend React navegable y lógica de dominio, acompañado por `ARQUITECTURA-PUERTO.md` (modelo de datos, autenticación híbrida, servicios, permisos y navegación).
 
 ## Ejecutar
 
@@ -12,20 +12,22 @@ Pruebas: `node --test lib/domain.test.ts`. Tipos: `pnpm exec tsc --noEmit`.
 
 - `app/Puerto.tsx`: cuatro vistas y controles accesibles.
 - `app/globals.css`: tokens y componentes claro/oscuro.
-- `lib/domain.ts`: Fisher–Yates criptográfico, Haversine, conjuntos máximos y cumpleaños.
+- `lib/domain.ts`: seed de seis cuentas, validación local, Fisher–Yates criptográfico, asignación equilibrada de suplentes, Haversine, conjuntos máximos y cumpleaños.
 - `lib/domain.test.ts`: pruebas de invariantes y límites.
 - `app/layout.tsx`: idioma y metadatos.
 
 ## Alcance
 
-La demo usa la identidad local de Denis para mostrar permisos. No es autenticación de usuario; la privacidad de Sites protege el acceso a la demo, no implementa las seis cuentas del producto. Los cinco nombres restantes son ejemplos. Ruleta, chat, bio, avatar y ajustes viven en memoria y se reinician al recargar. Sólo el tema se guarda en localStorage. No ingresar datos sensibles en una demostración.
+La demo permite entrar con username o email y las contraseñas iniciales indicadas en la especificación para cualquiera de las seis cuentas. Esta validación ocurre en el navegador y no es autenticación apta para producción; la privacidad de Sites protege el acceso a la demo, pero no sustituye la sesión del producto. Google y Apple muestran su estado de configuración y la vinculación del perfil es una simulación local. Ruleta, chat, credenciales editadas, enlaces sociales, bio, avatar y ajustes viven en memoria y se reinician al recargar. Sólo el tema se guarda en localStorage. No ingresar datos sensibles.
+
+La implementación real debe guardar las contraseñas con Argon2id, forzar el cambio de las claves iniciales, rotar sesiones y ejecutar OAuth en el backend con state, nonce y validación del subject. Los emails `.local` no son direcciones entregables y deben reemplazarse y verificarse antes de ofrecer recuperación por correo.
 
 GPS: se solicita permiso explícito y la posición se muestra con OpenStreetMap, que recibe las coordenadas. No se envía al grupo. El botón para detenerlo limpia el watcher y la posición; los datos vencen tras 60 s. Puede continuar mientras la pestaña permanezca abierta, sujeto a las restricciones del navegador. No existe tracking garantizado en segundo plano.
 
-Los sorteos agregan eventos al chat local. Mensajes de terceros, recibos de lectura remotos, alertas de proximidad, cron, push y moderación persistente requieren implementar el backend descrito. El cliente nunca debe ser autoridad de permisos ni del resultado en producción.
+Los sorteos agregan eventos al chat local. Si sobran integrantes, cada uno se marca como suplente y se integra al equipo más pequeño, eligiendo al azar entre empates. Mensajes de terceros, recibos de lectura remotos, alertas de proximidad, cron, push y moderación persistente requieren implementar el backend descrito. El cliente nunca debe ser autoridad de permisos, identidad ni resultado en producción.
 
 WebMCP: `puerto_sortear` usa la misma acción visible y valida entradas. Se registra sólo cuando document.modelContext está disponible; no se validó en un navegador compatible en esta entrega.
 
 ## Verificación
 
-Cinco tests de dominio incluyen todas las combinaciones de exclusión para los tres modos, 20 iteraciones por caso válido, distancias 49/51 m, cadenas espaciales, datos vencidos, audiencias y cumpleaños locales. Compilación y chequeo TypeScript se ejecutan durante la entrega. No se realizaron pruebas visuales automatizadas ni integración con backend.
+Ocho tests de dominio incluyen las seis cuentas por username/email, cumpleaños DD/MM, todas las combinaciones de exclusión para los tres modos, 20 iteraciones por caso válido, reparto equilibrado de suplentes, distancias 49/51 m, cadenas espaciales, datos vencidos, audiencias y cumpleaños locales. Compilación y chequeo TypeScript se ejecutan durante la entrega. No se realizaron pruebas visuales automatizadas ni integración con backend.
