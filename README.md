@@ -12,19 +12,20 @@ Pruebas: `node --test lib/domain.test.ts`. Tipos: `pnpm exec tsc --noEmit`.
 
 - `app/Puerto.tsx`: cuatro vistas y controles accesibles.
 - `app/globals.css`: tokens y componentes claro/oscuro.
-- `lib/domain.ts`: seed de seis cuentas, validación local, Fisher–Yates criptográfico, asignación equilibrada de suplentes, Haversine, conjuntos máximos y cumpleaños.
+- `lib/domain.ts`: seed de seis cuentas, validación local, Fisher–Yates criptográfico, equipos balanceados con suplentes, Haversine, conjuntos máximos y cumpleaños.
+- `lib/firebase.ts`: inicio con Google mediante Firebase Auth; toma configuración de variables `VITE_FIREBASE_*`.
 - `lib/domain.test.ts`: pruebas de invariantes y límites.
 - `app/layout.tsx`: idioma y metadatos.
 
 ## Alcance
 
-La demo permite entrar con username o email y las contraseñas iniciales indicadas en la especificación para cualquiera de las seis cuentas. Esta validación ocurre en el navegador y no es autenticación apta para producción; la privacidad de Sites protege el acceso a la demo, pero no sustituye la sesión del producto. Google y Apple muestran su estado de configuración y la vinculación del perfil es una simulación local. Ruleta, chat, credenciales editadas, enlaces sociales, bio, avatar y ajustes viven en memoria y se reinician al recargar. Sólo el tema se guarda en localStorage. No ingresar datos sensibles.
+La demo permite entrar con username o email y las contraseñas iniciales indicadas en la especificación para cualquiera de las seis cuentas. Esta validación ocurre en el navegador y no es autenticación apta para producción; la privacidad de Sites protege el acceso a la demo, pero no sustituye la sesión del producto. Google usa Firebase Auth cuando se cargan las variables de `.env.example`: una identidad nueva debe completar “¿Quién sos?” y sólo puede elegir los cinco miembros no administradores. Ruleta, gastos, credenciales editadas, enlaces sociales, bio, avatar y ajustes viven en memoria y se reinician al recargar. Sólo el tema se guarda en localStorage. No ingresar datos sensibles.
 
 La implementación real debe guardar las contraseñas con Argon2id, forzar el cambio de las claves iniciales, rotar sesiones y ejecutar OAuth en el backend con state, nonce y validación del subject. Los emails `.local` no son direcciones entregables y deben reemplazarse y verificarse antes de ofrecer recuperación por correo.
 
 GPS: se solicita permiso explícito y la posición se muestra con OpenStreetMap, que recibe las coordenadas. No se envía al grupo. El botón para detenerlo limpia el watcher y la posición; los datos vencen tras 60 s. Puede continuar mientras la pestaña permanezca abierta, sujeto a las restricciones del navegador. No existe tracking garantizado en segundo plano.
 
-Los sorteos agregan eventos al chat local. Si sobran integrantes, cada uno se marca como suplente y se integra al equipo más pequeño, eligiendo al azar entre empates. Mensajes de terceros, recibos de lectura remotos, alertas de proximidad, cron, push y moderación persistente requieren implementar el backend descrito. El cliente nunca debe ser autoridad de permisos, identidad ni resultado en producción.
+Si sobran integrantes, se mantienen todos los equipos visibles y cada suplente se integra al equipo más pequeño, eligiendo al azar entre empates. Por ejemplo, cinco personas en equipos de tres generan dos equipos 3/2. Alertas de proximidad, cron, push y moderación persistente requieren implementar el backend descrito. El cliente nunca debe ser autoridad de permisos, identidad ni resultado en producción.
 
 WebMCP: `puerto_sortear` usa la misma acción visible y valida entradas. Se registra sólo cuando document.modelContext está disponible; no se validó en un navegador compatible en esta entrega.
 
