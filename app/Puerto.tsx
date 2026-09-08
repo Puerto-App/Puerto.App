@@ -1,72 +1,934 @@
 'use client';
 
-import {useState,useEffect,useRef,type FormEvent} from 'react';
-import {Anchor,CircleDot,MapPin,MessageCircle,UserRound,Sparkles,Shuffle,Users,ArrowUp,ShieldCheck,ChevronRight,LocateFixed,Check,SunMoon,Cake,Navigation,Trash2,CheckCheck} from 'lucide-react';
-import {Switch} from '@/components/ui/switch';
-import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
-import {Dialog,DialogTrigger,DialogContent,DialogTitle,DialogDescription,DialogClose} from '@/components/ui/dialog';
-import {RadioGroup,RadioGroupItem} from '@/components/ui/radio-group';
-import {NativeSelect} from '@/components/ui/native-select';
-import {draw,type Mode,type Draw} from '@/lib/domain';
+import { useState, useEffect, useRef, type FormEvent } from 'react';
+import {
+  Anchor,
+  CircleDot,
+  MapPin,
+  MessageCircle,
+  UserRound,
+  Sparkles,
+  Shuffle,
+  Users,
+  ArrowUp,
+  ShieldCheck,
+  ChevronRight,
+  LocateFixed,
+  Check,
+  SunMoon,
+  Cake,
+  Navigation,
+  Trash2,
+  CheckCheck,
+} from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  Dialog,
+  DialogTrigger,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogClose,
+} from '@/components/ui/dialog';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { NativeSelect } from '@/components/ui/native-select';
+import { draw, type Mode, type Draw } from '@/lib/domain';
 
-const members=['Denis','Nico','Fran','Santi','Tomi','Lucas'];
-const colors=['#0A84FF','#5E5CE6','#137EBC','#3678D8','#007AFF','#2864BA'];
-type Message={id:string;body:string;kind:'text'|'roulette';at:Date;deleted?:boolean};
-const titles={ruleta:['Que decida la suerte.','Elegí quiénes juegan. El resto, dejáselo a la ruleta.'],mapa:['Cerca, aunque sea lejos.','Tu ubicación se comparte sólo cuando vos lo decidís.'],chat:['El punto de encuentro.','Una sola conversación para todo el grupo.'],perfil:['Este sos vos.','Tu lugar en Puerto. A tu manera.']};
-function Avatar({name,large=false,src}:{name:string;large?:boolean;src?:string}){return <span className={`avatar ${large?'large-avatar':''} ${name==='Denis'?'online':''}`}>{src?<img src={src} alt="Avatar de Denis"/>:name[0]}</span>}
-function Result({result}:{result:Draw}){return <div className="result-block">{result.winner?<div className="winner"><Sparkles/><strong>{result.winner}</strong><span>La suerte te eligió</span></div>:result.teams.map((team,i)=><div className="team" key={i}><small>Equipo {i+1}</small><strong>{team.join(' · ')}</strong></div>)}{result.substitutes.length>0&&<p className="reserve"><strong>Suplentes:</strong> {result.substitutes.join(' · ')}</p>}</div>}
-export default function Puerto(){
- const [tab,setTab]=useState<keyof typeof titles>('ruleta');
- const [selected,setSelected]=useState(members),[mode,setMode]=useState<Mode>('teams3');
- const [spinning,setSpinning]=useState(false),[rotation,setRotation]=useState(0),[result,setResult]=useState<Draw|null>(null);
- const [messages,setMessages]=useState<Message[]>([]),[text,setText]=useState('');
- const [bio,setBio]=useState(''),[birth,setBirth]=useState(''),[avatar,setAvatar]=useState(''),[profileStatus,setProfileStatus]=useState('');
- const [theme,setTheme]=useState('system'),[radius,setRadius]=useState(50),[timezone,setTimezone]=useState('America/Argentina/Buenos_Aires');
- const [gps,setGps]=useState<{lat:number;lng:number;accuracy:number;at:number}|null>(null),[sharing,setSharing]=useState(false),[geoStatus,setGeoStatus]=useState('Ubicación desactivada'),[consentOpen,setConsentOpen]=useState(false);
- const [notice,setNotice]=useState(''),[now,setNow]=useState(Date.now());
- const watch=useRef<number|null>(null),generation=useRef(0),spinLock=useRef(false),timer=useRef<ReturnType<typeof setTimeout>|null>(null),sendLock=useRef(false),chatEnd=useRef<HTMLDivElement>(null);
- const actionRef=useRef<(m?:Mode,ids?:string[])=>Promise<Draw>>(null);
- useEffect(()=>{const clock=setInterval(()=>setNow(Date.now()),10000);return()=>{clearInterval(clock);if(timer.current)clearTimeout(timer.current);if(watch.current!==null)navigator.geolocation.clearWatch(watch.current)}},[]);
- useEffect(()=>{try{const value=localStorage.getItem('puerto-theme');if(value&&['light','dark','system'].includes(value))setTheme(value)}catch{}},[]);
- useEffect(()=>{if(theme==='system')delete document.documentElement.dataset.theme;else document.documentElement.dataset.theme=theme;try{localStorage.setItem('puerto-theme',theme)}catch{}},[theme]);
- useEffect(()=>{if(tab==='chat')chatEnd.current?.scrollIntoView({block:'nearest'})},[messages,tab]);
- const currentGps=gps&&now-gps.at<=60000?gps:null;
- const size=mode==='single'?1:mode==='teams2'?2:3;
- const enough=selected.length>=size;
- function addResult(r:Draw){const body=r.winner?`La ruleta eligió a ${r.winner}.`:r.teams.map((team,i)=>`Equipo ${i+1}: ${team.join(', ')}`).join(' · ')+(r.substitutes.length?` · Suplentes: ${r.substitutes.join(', ')}`:'');setMessages(prev=>[...prev,{id:crypto.randomUUID(),kind:'roulette',body,at:new Date()}]);}
- async function spin(nextMode:Mode=mode,ids:string[]=selected):Promise<Draw>{
-  if(spinLock.current)throw new Error('Hay una tirada en curso.');
-  if(ids.some(id=>!members.includes(id)))throw new Error('Integrante desconocido.');
-  const r=draw(ids,nextMode);spinLock.current=true;setSpinning(true);setResult(null);setMode(nextMode);setSelected(ids);
-  const focus=r.winner??r.teams[0][0],index=ids.indexOf(focus),target=360-(index+.5)*360/ids.length;
-  setRotation(previous=>Math.ceil(previous/360)*360+1440+target);
-  return new Promise(resolve=>{timer.current=setTimeout(()=>{setResult(r);addResult(r);setSpinning(false);spinLock.current=false;navigator.vibrate?.([35,25,60]);resolve(r)},matchMedia('(prefers-reduced-motion: reduce)').matches?50:2600)});
- }
- actionRef.current=spin;
- useEffect(()=>{
-  const context=(document as Document&{modelContext?:{registerTool:(tool:object,options:object)=>void|Promise<void>}}).modelContext;if(!context)return;
-  const lifecycle=new AbortController();
-  Promise.resolve(context.registerTool({name:'puerto_sortear',title:'Sortear integrantes',description:'Completa una tirada local y agrega su resultado al chat de demostración.',inputSchema:{type:'object',properties:{mode:{type:'string',enum:['teams2','teams3','single']},members:{type:'array',items:{type:'string',enum:members},uniqueItems:true,minItems:1,maxItems:6}},required:['mode','members'],additionalProperties:false},annotations:{readOnlyHint:false},execute:async(input:unknown)=>{const value=input as {mode:Mode;members:string[]};if(!value||typeof value!=='object'||Object.keys(value).some(k=>!['mode','members'].includes(k))||!Array.isArray(value.members)||value.members.some(x=>typeof x!=='string')||!['teams2','teams3','single'].includes(value.mode))throw new Error('Parámetros inválidos');setTab('ruleta');return actionRef.current!(value.mode,value.members)}},{signal:lifecycle.signal})).catch(()=>{});
-  return()=>lifecycle.abort();
- },[]);
- function stopSharing(){generation.current++;if(watch.current!==null)navigator.geolocation.clearWatch(watch.current);watch.current=null;setSharing(false);setGps(null);setGeoStatus('Ubicación desactivada');}
- function startSharing(){setConsentOpen(false);if(!navigator.geolocation){setGeoStatus('Este navegador no ofrece ubicación.');return}stopSharing();const token=generation.current;setSharing(true);setGeoStatus('Buscando tu ubicación…');watch.current=navigator.geolocation.watchPosition(p=>{if(token!==generation.current)return;setGps({lat:p.coords.latitude,lng:p.coords.longitude,accuracy:p.coords.accuracy,at:p.timestamp});setNow(Date.now());setGeoStatus('Ubicación activa en este dispositivo')},error=>{if(token!==generation.current)return;stopSharing();setGeoStatus(error.code===1?'Permiso denegado. Podés habilitarlo en los ajustes del navegador.':error.code===3?'La ubicación tardó demasiado. Volvé a intentarlo.':'No pudimos obtener tu ubicación. Volvé a intentarlo.')},{enableHighAccuracy:true,maximumAge:5000,timeout:15000});}
- function send(e:FormEvent){e.preventDefault();if(!text.trim()||sendLock.current)return;sendLock.current=true;setMessages(prev=>[...prev,{id:crypto.randomUUID(),body:text.trim(),kind:'text',at:new Date()}]);setText('');queueMicrotask(()=>{sendLock.current=false})}
- function saveProfile(e:FormEvent){e.preventDefault();if(birth&&(!/^\d{4}-\d{2}-\d{2}$/.test(birth)||new Date(`${birth}T12:00:00`).getTime()>Date.now())){setProfileStatus('Ingresá una fecha de nacimiento válida, no futura.');return}setProfileStatus('Perfil actualizado en esta sesión de demostración.');}
- async function chooseAvatar(file?:File){if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>2*1024*1024){setProfileStatus('Elegí una imagen JPG, PNG o WebP de hasta 2 MB.');return}const reader=new FileReader();reader.onload=()=>{setAvatar(String(reader.result));setProfileStatus('Avatar actualizado en esta sesión.')};reader.readAsDataURL(file)}
- return <main className="app-shell"><header className="brand"><span className="brand-icon"><Anchor size={23} aria-hidden="true"/></span><strong>puerto<span>app</span></strong><span className="demo-badge">Demo · datos locales</span></header>
- <Tabs value={tab} onValueChange={value=>setTab(value as keyof typeof titles)} className="main-tabs">
- <div className="page-heading"><div><p className="eyebrow">EL GRUPO, EN UN SOLO LUGAR</p><h1>{titles[tab][0]}</h1><p>{titles[tab][1]}</p></div><div className="group-pill"><Users size={16} aria-hidden="true"/>6 integrantes</div></div>
- <TabsContent value="ruleta"><div className="roulette-grid"><section className="card wheel-card"><div className="section-heading"><h2><CircleDot size={18} aria-hidden="true"/>Ruleta del grupo</h2><span className="small-badge">Una nueva tirada</span></div>
- <RadioGroup aria-label="Modo de sorteo" value={mode} onValueChange={value=>{if(!spinning)setMode(value as Mode)}} disabled={spinning} className="segments mode-controls">{([['teams3','Equipos de 3'],['teams2','Equipos de 2'],['single','Una persona']] as const).map(([value,label])=><label className={mode===value?'chosen':''} key={value}><RadioGroupItem value={value} aria-label={label}/><span>{label}</span></label>)}</RadioGroup>
- <div className="wheel-zone" aria-hidden="true"><div className="pointer"/><div className="wheel" style={{transform:`rotate(${rotation}deg)`,background:selected.length?`conic-gradient(${selected.map((_,i)=>`${colors[i]} ${i*360/selected.length}deg ${(i+1)*360/selected.length}deg`).join(',')})`:'var(--segment)'}}>{selected.map((name,i)=>{const angle=(i+.5)*360/selected.length;return <span key={name} className="wheel-name" style={{transform:`rotate(${angle}deg) translateY(-106px) rotate(-${angle}deg)`}}>{name}</span>})}<div className="wheel-center"><Anchor size={30}/></div></div></div>
- <button className="primary" disabled={!enough||spinning} onClick={()=>void spin().catch(e=>setNotice(e.message))}><Shuffle size={18} aria-hidden="true"/>{spinning?'La suerte está girando…':'Girar la ruleta'}</button><p className="footnote" role="status">{!enough?`Activá al menos ${size} integrante${size===1?'':'s'}.`:mode==='single'?`${selected.length} participantes · una persona elegida`:`${Math.floor(selected.length/size)} equipo${Math.floor(selected.length/size)>1?'s':''} de ${size}${selected.length%size?` · ${selected.length%size} suplente${selected.length%size>1?'s':''}`:''}`}</p>
- {result&&<div aria-live="polite"><Result result={result}/><p className="footnote"><Check size={12} className="inline"/> Resultado agregado al chat local</p></div>}</section>
- <aside><section className="card presence-card"><div className="section-heading"><h2>¿Quiénes están?</h2><span className="count">{selected.length}/6</span></div><p className="support">Sólo participan los que actives.</p><div className="member-list">{members.map((name,i)=><div className="member-row" key={name}><Avatar name={name} src={i===0?avatar:undefined}/><div><strong>{name}{i===0?' (vos)':''}</strong><small>{selected.includes(name)?'Participa en la tirada':'Fuera de esta tirada'}</small></div><Switch disabled={spinning} aria-label={`Incluir a ${name}`} checked={selected.includes(name)} onCheckedChange={on=>setSelected(on?members.filter(n=>selected.includes(n)||n===name):selected.filter(n=>n!==name))}/></div>)}</div></section><div className="tip"><Sparkles size={20} aria-hidden="true"/><div><strong>Todos tienen la misma chance</strong><p>Cada tirada empieza de cero.</p></div></div><p className="footnote">Cinco nombres de ejemplo. Denis es el administrador.</p></aside></div></TabsContent>
- <TabsContent value="mapa"><div className="roulette-grid"><section className="card map-card"><div className="section-heading"><h2><MapPin size={18}/>Ubicaciones</h2><span className="count">{currentGps?1:0}/6 visibles</span></div><div className="map-surface">{currentGps?<iframe title="Mapa de tu ubicación actual en OpenStreetMap" src={`https://www.openstreetmap.org/export/embed.html?bbox=${currentGps.lng-.006},${currentGps.lat-.004},${currentGps.lng+.006},${currentGps.lat+.004}&layer=mapnik&marker=${currentGps.lat},${currentGps.lng}`} loading="lazy" referrerPolicy="no-referrer"/>:<div className="empty-state"><span className="empty-icon"><Navigation size={36}/></span><h2>{sharing?'Buscando una señal reciente':'Tu ubicación, bajo tu control'}</h2><p>Activá tu ubicación para verla en el mapa.</p></div>}</div><p className="support" role="status">{geoStatus}{gps&&!currentGps?' · La última posición venció.':''}</p>{currentGps&&<p className="support">Precisión ±{Math.round(currentGps.accuracy)} m · {new Date(currentGps.at).toLocaleTimeString('es-AR')}</p>}
- {sharing?<button className="secondary-button" onClick={stopSharing}>Dejar de compartir</button>:<Dialog open={consentOpen} onOpenChange={setConsentOpen}><DialogTrigger className="primary"><LocateFixed size={18}/>Activar mi ubicación</DialogTrigger><DialogContent showCloseButton={false} className="puerto-dialog"><DialogTitle>Vos decidís cuándo compartir</DialogTitle><DialogDescription>Esta demo muestra tu GPS en OpenStreetMap, que recibe las coordenadas para dibujar el mapa. No las envía al grupo. Podés desactivarlo en cualquier momento.</DialogDescription><p>En la app conectada, compartir ubicación permite anunciar encuentros. Para dos personas, el grupo verá la frase lúdica «están teniendo relaciones amorosas».</p><button className="primary" onClick={startSharing}>Permitir ubicación en la demo</button><DialogClose className="secondary-button">Ahora no</DialogClose></DialogContent></Dialog>}</section><aside><section className="card"><div className="section-heading"><h2>El grupo</h2><span className="small-badge">Radio: {radius} m</span></div>{members.map(name=><div className="member-row" key={name}><Avatar name={name}/><div><strong>{name}</strong><small>{name==='Denis'&&currentGps?'Ubicación local activa':'Sin ubicación compartida'}</small></div><MapPin size={16} color="var(--secondary)"/></div>)}</section><div className="tip"><ShieldCheck size={23}/><div><strong>Sólo mientras vos quieras</strong><p>Las ubicaciones del grupo requieren conectar el servicio en tiempo real.</p></div></div></aside></div></TabsContent>
- <TabsContent value="chat"><section className="card chat-card"><div className="section-heading"><h2><span className="chat-mark"><MessageCircle size={20}/></span>Puerto · El grupo</h2><span className="small-badge">Sala única · sesión local</span></div><div className="chat-scroll" role="log" aria-label="Mensajes del grupo" aria-live="polite">{messages.length===0&&<div className="empty-state"><span className="empty-icon"><MessageCircle size={36}/></span><h2>La conversación empieza acá</h2><p>Escribí un mensaje o probá la ruleta.<br/>Los mensajes de esta demo se guardan en la sesión.</p></div>}{messages.map(message=><div key={message.id} className={message.kind==='roulette'?'system-message':'message-row'}>{message.kind==='roulette'?<><Shuffle size={15}/><div><strong>Resultado de la ruleta</strong><p>{message.body}</p><small>{message.at.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</small></div></>:<div className="bubble"><strong>Denis <span>vos</span></strong><p>{message.deleted?'Mensaje eliminado por el administrador':message.body}</p><footer><span>{message.at.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})} · Local</span><Dialog><DialogTrigger aria-label="Ver estado del mensaje" className="icon-button"><CheckCheck size={15}/></DialogTrigger><DialogContent showCloseButton={false} className="puerto-dialog"><DialogTitle>Estado del mensaje</DialogTitle><DialogDescription>Guardado en esta sesión. No hay confirmaciones de lectura: la demo no está conectada a otros integrantes.</DialogDescription><DialogClose className="primary">Entendido</DialogClose></DialogContent></Dialog>{!message.deleted&&<button className="icon-button" aria-label="Eliminar mensaje como administrador" onClick={()=>setMessages(prev=>prev.map(m=>m.id===message.id?{...m,deleted:true}:m))}><Trash2 size={14}/></button>}</footer></div>}</div>)}<div ref={chatEnd}/></div><form className="composer" onSubmit={send}><label className="sr-only" htmlFor="message">Mensaje al grupo</label><input id="message" value={text} onChange={e=>setText(e.target.value)} maxLength={4000} placeholder="Escribí algo al grupo…" autoComplete="off"/><button aria-label="Enviar mensaje local" disabled={!text.trim()}><ArrowUp size={20}/></button></form><p className="footnote">Sin conexión a otros integrantes · los datos se reinician al recargar</p></section></TabsContent>
- <TabsContent value="perfil"><div className="profile-grid"><section className="card profile-summary"><Avatar name="Denis" large src={avatar}/><h2>Denis</h2><span className="admin-badge"><ShieldCheck size={13}/>Administrador</span><p>{bio||'Todavía no agregaste una descripción.'}</p><label className="upload-label">Cambiar avatar<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>void chooseAvatar(e.target.files?.[0])}/></label><small>JPG, PNG o WebP · hasta 2 MB</small></section><div><form className="card profile-form" onSubmit={saveProfile}><h2>Tu perfil</h2><label htmlFor="identity">Identidad del grupo</label><div className="locked-field"><input id="identity" value="Denis" readOnly/><ShieldCheck size={17}/></div><p className="support">Vinculada a tu cuenta. No se puede cambiar.</p><label htmlFor="bio">Descripción / Bio</label><textarea id="bio" value={bio} onChange={e=>setBio(e.target.value)} maxLength={280} placeholder="Algo que diga un poco de vos" rows={3}/><small className="char-count">{bio.length}/280</small><label htmlFor="birth">Fecha de nacimiento</label><input id="birth" type="date" value={birth} max={new Date().toLocaleDateString('en-CA')} onChange={e=>setBirth(e.target.value)}/><p className="support"><Cake size={13} className="inline"/> Para que el grupo se acuerde de tu día. Tu año es privado.</p><button className="primary" type="submit">Guardar perfil</button><p role="status" className="support">{profileStatus}</p></form><section className="card settings-card"><h2>Ajustes</h2><div className="setting-row"><span className="setting-icon purple"><SunMoon size={17}/></span><label htmlFor="theme">Apariencia</label><NativeSelect id="theme" value={theme} onChange={e=>setTheme(e.target.value)}><option value="system">Automática</option><option value="light">Clara</option><option value="dark">Oscura</option></NativeSelect></div><Dialog><DialogTrigger className="setting-row setting-trigger"><span className="setting-icon blue"><ShieldCheck size={17}/></span><span>Configuración del grupo</span><ChevronRight size={18}/></DialogTrigger><DialogContent showCloseButton={false} className="puerto-dialog"><DialogTitle>Configuración del grupo</DialogTitle><DialogDescription>Acceso de Denis, administrador. Los cambios afectan esta demo local.</DialogDescription><label htmlFor="radius">Radio de proximidad (10–500 m)</label><input id="radius" type="number" min={10} max={500} value={radius} onChange={e=>{const n=Number(e.target.value);if(Number.isInteger(n)&&n>=10&&n<=500)setRadius(n)}}/><label htmlFor="timezone">Zona horaria del grupo</label><NativeSelect id="timezone" value={timezone} onChange={e=>setTimezone(e.target.value)}><option value="America/Argentina/Buenos_Aires">Buenos Aires</option><option value="America/Montevideo">Montevideo</option><option value="Europe/Madrid">Madrid</option></NativeSelect><p>Cumpleaños a las 00:00 de esta zona. El cron y las notificaciones se ejecutarán al conectar el backend.</p><DialogClose className="primary">Listo</DialogClose></DialogContent></Dialog></section></div></div></TabsContent>
- <TabsList className="tabbar" aria-label="Navegación principal">{([{value:'ruleta',label:'Ruleta',Icon:CircleDot},{value:'mapa',label:'Mapa',Icon:MapPin},{value:'chat',label:'Chat',Icon:MessageCircle},{value:'perfil',label:'Perfil',Icon:UserRound}] as const).map(({value,label,Icon})=><TabsTrigger value={value} className={tab===value?'active':''} key={value}><Icon aria-hidden="true" size={21}/><span>{label}</span></TabsTrigger>)}</TabsList>
- </Tabs><div role="status" className="footnote">{notice}</div></main>
+const members = ['Denis', 'Nico', 'Fran', 'Santi', 'Tomi', 'Lucas'];
+const colors = [
+  '#0A84FF',
+  '#5E5CE6',
+  '#137EBC',
+  '#3678D8',
+  '#007AFF',
+  '#2864BA',
+];
+type Message = {
+  id: string;
+  body: string;
+  kind: 'text' | 'roulette';
+  at: Date;
+  deleted?: boolean;
+};
+const titles = {
+  ruleta: [
+    'Que decida la suerte.',
+    'Elegí quiénes juegan. El resto, dejáselo a la ruleta.',
+  ],
+  mapa: [
+    'Cerca, aunque sea lejos.',
+    'Tu ubicación se comparte sólo cuando vos lo decidís.',
+  ],
+  chat: ['El punto de encuentro.', 'Una sola conversación para todo el grupo.'],
+  perfil: ['Este sos vos.', 'Tu lugar en Puerto. A tu manera.'],
+};
+function Avatar({
+  name,
+  large = false,
+  src,
+}: {
+  name: string;
+  large?: boolean;
+  src?: string;
+}) {
+  return (
+    <span
+      className={`avatar ${large ? 'large-avatar' : ''} ${name === 'Denis' ? 'online' : ''}`}
+    >
+      {src ? <img src={src} alt="Avatar de Denis" /> : name[0]}
+    </span>
+  );
+}
+function Result({ result }: { result: Draw }) {
+  return (
+    <div className="result-block">
+      {result.winner ? (
+        <div className="winner">
+          <Sparkles />
+          <strong>{result.winner}</strong>
+          <span>La suerte te eligió</span>
+        </div>
+      ) : (
+        result.teams.map((team, i) => (
+          <div className="team" key={i}>
+            <small>Equipo {i + 1}</small>
+            <strong>{team.join(' · ')}</strong>
+          </div>
+        ))
+      )}
+      {result.substitutes.length > 0 && (
+        <p className="reserve">
+          <strong>Suplentes:</strong> {result.substitutes.join(' · ')}
+        </p>
+      )}
+    </div>
+  );
+}
+export default function Puerto() {
+  const [tab, setTab] = useState<keyof typeof titles>('ruleta');
+  const [selected, setSelected] = useState(members),
+    [mode, setMode] = useState<Mode>('teams3');
+  const [spinning, setSpinning] = useState(false),
+    [rotation, setRotation] = useState(0),
+    [result, setResult] = useState<Draw | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]),
+    [text, setText] = useState('');
+  const [bio, setBio] = useState(''),
+    [birth, setBirth] = useState(''),
+    [avatar, setAvatar] = useState(''),
+    [profileStatus, setProfileStatus] = useState('');
+  const [theme, setTheme] = useState('system'),
+    [radius, setRadius] = useState(50),
+    [timezone, setTimezone] = useState('America/Argentina/Buenos_Aires');
+  const [gps, setGps] = useState<{
+      lat: number;
+      lng: number;
+      accuracy: number;
+      at: number;
+    } | null>(null),
+    [sharing, setSharing] = useState(false),
+    [geoStatus, setGeoStatus] = useState('Ubicación desactivada'),
+    [consentOpen, setConsentOpen] = useState(false);
+  const [notice, setNotice] = useState(''),
+    [now, setNow] = useState(Date.now());
+  const watch = useRef<number | null>(null),
+    generation = useRef(0),
+    spinLock = useRef(false),
+    timer = useRef<ReturnType<typeof setTimeout> | null>(null),
+    sendLock = useRef(false),
+    chatEnd = useRef<HTMLDivElement>(null);
+  const actionRef = useRef<(m?: Mode, ids?: string[]) => Promise<Draw>>(null);
+  useEffect(() => {
+    const clock = setInterval(() => setNow(Date.now()), 10000);
+    return () => {
+      clearInterval(clock);
+      if (timer.current) clearTimeout(timer.current);
+      if (watch.current !== null)
+        navigator.geolocation.clearWatch(watch.current);
+    };
+  }, []);
+  useEffect(() => {
+    try {
+      const value = localStorage.getItem('puerto-theme');
+      if (value && ['light', 'dark', 'system'].includes(value)) setTheme(value);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    if (theme === 'system') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem('puerto-theme', theme);
+    } catch {}
+  }, [theme]);
+  useEffect(() => {
+    if (tab === 'chat') chatEnd.current?.scrollIntoView({ block: 'nearest' });
+  }, [messages, tab]);
+  const currentGps = gps && now - gps.at <= 60000 ? gps : null;
+  const size = mode === 'single' ? 1 : mode === 'teams2' ? 2 : 3;
+  const enough = selected.length >= size;
+  function addResult(r: Draw) {
+    const body = r.winner
+      ? `La ruleta eligió a ${r.winner}.`
+      : r.teams
+          .map((team, i) => `Equipo ${i + 1}: ${team.join(', ')}`)
+          .join(' · ') +
+        (r.substitutes.length
+          ? ` · Suplentes: ${r.substitutes.join(', ')}`
+          : '');
+    setMessages((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), kind: 'roulette', body, at: new Date() },
+    ]);
+  }
+  async function spin(
+    nextMode: Mode = mode,
+    ids: string[] = selected,
+  ): Promise<Draw> {
+    if (spinLock.current) throw new Error('Hay una tirada en curso.');
+    if (ids.some((id) => !members.includes(id)))
+      throw new Error('Integrante desconocido.');
+    const r = draw(ids, nextMode);
+    spinLock.current = true;
+    setSpinning(true);
+    setResult(null);
+    setMode(nextMode);
+    setSelected(ids);
+    const focus = r.winner ?? r.teams[0][0],
+      index = ids.indexOf(focus),
+      target = 360 - ((index + 0.5) * 360) / ids.length;
+    setRotation((previous) => Math.ceil(previous / 360) * 360 + 1440 + target);
+    return new Promise((resolve) => {
+      timer.current = setTimeout(
+        () => {
+          setResult(r);
+          addResult(r);
+          setSpinning(false);
+          spinLock.current = false;
+          navigator.vibrate?.([35, 25, 60]);
+          resolve(r);
+        },
+        matchMedia('(prefers-reduced-motion: reduce)').matches ? 50 : 2600,
+      );
+    });
+  }
+  actionRef.current = spin;
+  useEffect(() => {
+    const context = (
+      document as Document & {
+        modelContext?: {
+          registerTool: (tool: object, options: object) => void | Promise<void>;
+        };
+      }
+    ).modelContext;
+    if (!context) return;
+    const lifecycle = new AbortController();
+    Promise.resolve(
+      context.registerTool(
+        {
+          name: 'puerto_sortear',
+          title: 'Sortear integrantes',
+          description:
+            'Completa una tirada local y agrega su resultado al chat de demostración.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              mode: { type: 'string', enum: ['teams2', 'teams3', 'single'] },
+              members: {
+                type: 'array',
+                items: { type: 'string', enum: members },
+                uniqueItems: true,
+                minItems: 1,
+                maxItems: 6,
+              },
+            },
+            required: ['mode', 'members'],
+            additionalProperties: false,
+          },
+          annotations: { readOnlyHint: false },
+          execute: async (input: unknown) => {
+            const value = input as { mode: Mode; members: string[] };
+            if (
+              !value ||
+              typeof value !== 'object' ||
+              Object.keys(value).some(
+                (k) => !['mode', 'members'].includes(k),
+              ) ||
+              !Array.isArray(value.members) ||
+              value.members.some((x) => typeof x !== 'string') ||
+              !['teams2', 'teams3', 'single'].includes(value.mode)
+            )
+              throw new Error('Parámetros inválidos');
+            setTab('ruleta');
+            return actionRef.current!(value.mode, value.members);
+          },
+        },
+        { signal: lifecycle.signal },
+      ),
+    ).catch(() => {});
+    return () => lifecycle.abort();
+  }, []);
+  function stopSharing() {
+    generation.current++;
+    if (watch.current !== null) navigator.geolocation.clearWatch(watch.current);
+    watch.current = null;
+    setSharing(false);
+    setGps(null);
+    setGeoStatus('Ubicación desactivada');
+  }
+  function startSharing() {
+    setConsentOpen(false);
+    if (!navigator.geolocation) {
+      setGeoStatus('Este navegador no ofrece ubicación.');
+      return;
+    }
+    stopSharing();
+    const token = generation.current;
+    setSharing(true);
+    setGeoStatus('Buscando tu ubicación…');
+    watch.current = navigator.geolocation.watchPosition(
+      (p) => {
+        if (token !== generation.current) return;
+        setGps({
+          lat: p.coords.latitude,
+          lng: p.coords.longitude,
+          accuracy: p.coords.accuracy,
+          at: p.timestamp,
+        });
+        setNow(Date.now());
+        setGeoStatus('Ubicación activa en este dispositivo');
+      },
+      (error) => {
+        if (token !== generation.current) return;
+        stopSharing();
+        setGeoStatus(
+          error.code === 1
+            ? 'Permiso denegado. Podés habilitarlo en los ajustes del navegador.'
+            : error.code === 3
+              ? 'La ubicación tardó demasiado. Volvé a intentarlo.'
+              : 'No pudimos obtener tu ubicación. Volvé a intentarlo.',
+        );
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
+    );
+  }
+  function send(e: FormEvent) {
+    e.preventDefault();
+    if (!text.trim() || sendLock.current) return;
+    sendLock.current = true;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        body: text.trim(),
+        kind: 'text',
+        at: new Date(),
+      },
+    ]);
+    setText('');
+    queueMicrotask(() => {
+      sendLock.current = false;
+    });
+  }
+  function saveProfile(e: FormEvent) {
+    e.preventDefault();
+    if (
+      birth &&
+      (!/^\d{4}-\d{2}-\d{2}$/.test(birth) ||
+        new Date(`${birth}T12:00:00`).getTime() > Date.now())
+    ) {
+      setProfileStatus('Ingresá una fecha de nacimiento válida, no futura.');
+      return;
+    }
+    setProfileStatus('Perfil actualizado en esta sesión de demostración.');
+  }
+  async function chooseAvatar(file?: File) {
+    if (!file) return;
+    if (
+      !['image/png', 'image/jpeg', 'image/webp'].includes(file.type) ||
+      file.size > 2 * 1024 * 1024
+    ) {
+      setProfileStatus('Elegí una imagen JPG, PNG o WebP de hasta 2 MB.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAvatar(String(reader.result));
+      setProfileStatus('Avatar actualizado en esta sesión.');
+    };
+    reader.readAsDataURL(file);
+  }
+  return (
+    <main className="app-shell">
+      <header className="brand">
+        <span className="brand-icon">
+          <Anchor size={23} aria-hidden="true" />
+        </span>
+        <strong>
+          puerto<span>app</span>
+        </strong>
+        <span className="demo-badge">Demo · datos locales</span>
+      </header>
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setTab(value as keyof typeof titles)}
+        className="main-tabs"
+      >
+        <div className="page-heading">
+          <div>
+            <p className="eyebrow">EL GRUPO, EN UN SOLO LUGAR</p>
+            <h1>{titles[tab][0]}</h1>
+            <p>{titles[tab][1]}</p>
+          </div>
+          <div className="group-pill">
+            <Users size={16} aria-hidden="true" />6 integrantes
+          </div>
+        </div>
+        <TabsContent value="ruleta">
+          <div className="roulette-grid">
+            <section className="card wheel-card">
+              <div className="section-heading">
+                <h2>
+                  <CircleDot size={18} aria-hidden="true" />
+                  Ruleta del grupo
+                </h2>
+                <span className="small-badge">Una nueva tirada</span>
+              </div>
+              <RadioGroup
+                aria-label="Modo de sorteo"
+                value={mode}
+                onValueChange={(value) => {
+                  if (!spinning) setMode(value as Mode);
+                }}
+                disabled={spinning}
+                className="segments mode-controls"
+              >
+                {(
+                  [
+                    ['teams3', 'Equipos de 3'],
+                    ['teams2', 'Equipos de 2'],
+                    ['single', 'Una persona'],
+                  ] as const
+                ).map(([value, label]) => (
+                  <label className={mode === value ? 'chosen' : ''} key={value}>
+                    <RadioGroupItem value={value} aria-label={label} />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </RadioGroup>
+              <div className="wheel-zone" aria-hidden="true">
+                <div className="pointer" />
+                <div
+                  className="wheel"
+                  style={{
+                    transform: `rotate(${rotation}deg)`,
+                    background: selected.length
+                      ? `conic-gradient(${selected.map((_, i) => `${colors[i]} ${(i * 360) / selected.length}deg ${((i + 1) * 360) / selected.length}deg`).join(',')})`
+                      : 'var(--segment)',
+                  }}
+                >
+                  {selected.map((name, i) => {
+                    const angle = ((i + 0.5) * 360) / selected.length;
+                    return (
+                      <span
+                        key={name}
+                        className="wheel-name"
+                        style={{
+                          transform: `rotate(${angle}deg) translateY(-106px) rotate(-${angle}deg)`,
+                        }}
+                      >
+                        {name}
+                      </span>
+                    );
+                  })}
+                  <div className="wheel-center">
+                    <Anchor size={30} />
+                  </div>
+                </div>
+              </div>
+              <button
+                className="primary"
+                disabled={!enough || spinning}
+                onClick={() => void spin().catch((e) => setNotice(e.message))}
+              >
+                <Shuffle size={18} aria-hidden="true" />
+                {spinning ? 'La suerte está girando…' : 'Girar la ruleta'}
+              </button>
+              <p className="footnote" role="status">
+                {!enough
+                  ? `Activá al menos ${size} integrante${size === 1 ? '' : 's'}.`
+                  : mode === 'single'
+                    ? `${selected.length} participantes · una persona elegida`
+                    : `${Math.floor(selected.length / size)} equipo${Math.floor(selected.length / size) > 1 ? 's' : ''} de ${size}${selected.length % size ? ` · ${selected.length % size} suplente${selected.length % size > 1 ? 's' : ''}` : ''}`}
+              </p>
+              {result && (
+                <div aria-live="polite">
+                  <Result result={result} />
+                  <p className="footnote">
+                    <Check size={12} className="inline" /> Resultado agregado al
+                    chat local
+                  </p>
+                </div>
+              )}
+            </section>
+            <aside>
+              <section className="card presence-card">
+                <div className="section-heading">
+                  <h2>¿Quiénes están?</h2>
+                  <span className="count">{selected.length}/6</span>
+                </div>
+                <p className="support">Sólo participan los que actives.</p>
+                <div className="member-list">
+                  {members.map((name, i) => (
+                    <div className="member-row" key={name}>
+                      <Avatar name={name} src={i === 0 ? avatar : undefined} />
+                      <div>
+                        <strong>
+                          {name}
+                          {i === 0 ? ' (vos)' : ''}
+                        </strong>
+                        <small>
+                          {selected.includes(name)
+                            ? 'Participa en la tirada'
+                            : 'Fuera de esta tirada'}
+                        </small>
+                      </div>
+                      <Switch
+                        disabled={spinning}
+                        aria-label={`Incluir a ${name}`}
+                        checked={selected.includes(name)}
+                        onCheckedChange={(on) =>
+                          setSelected(
+                            on
+                              ? members.filter(
+                                  (n) => selected.includes(n) || n === name,
+                                )
+                              : selected.filter((n) => n !== name),
+                          )
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+              <div className="tip">
+                <Sparkles size={20} aria-hidden="true" />
+                <div>
+                  <strong>Todos tienen la misma chance</strong>
+                  <p>Cada tirada empieza de cero.</p>
+                </div>
+              </div>
+              <p className="footnote">
+                Cinco nombres de ejemplo. Denis es el administrador.
+              </p>
+            </aside>
+          </div>
+        </TabsContent>
+        <TabsContent value="mapa">
+          <div className="roulette-grid">
+            <section className="card map-card">
+              <div className="section-heading">
+                <h2>
+                  <MapPin size={18} />
+                  Ubicaciones
+                </h2>
+                <span className="count">{currentGps ? 1 : 0}/6 visibles</span>
+              </div>
+              <div className="map-surface">
+                {currentGps ? (
+                  <iframe
+                    title="Mapa de tu ubicación actual en OpenStreetMap"
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${currentGps.lng - 0.006},${currentGps.lat - 0.004},${currentGps.lng + 0.006},${currentGps.lat + 0.004}&layer=mapnik&marker=${currentGps.lat},${currentGps.lng}`}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : (
+                  <div className="empty-state">
+                    <span className="empty-icon">
+                      <Navigation size={36} />
+                    </span>
+                    <h2>
+                      {sharing
+                        ? 'Buscando una señal reciente'
+                        : 'Tu ubicación, bajo tu control'}
+                    </h2>
+                    <p>Activá tu ubicación para verla en el mapa.</p>
+                  </div>
+                )}
+              </div>
+              <p className="support" role="status">
+                {geoStatus}
+                {gps && !currentGps ? ' · La última posición venció.' : ''}
+              </p>
+              {currentGps && (
+                <p className="support">
+                  Precisión ±{Math.round(currentGps.accuracy)} m ·{' '}
+                  {new Date(currentGps.at).toLocaleTimeString('es-AR')}
+                </p>
+              )}
+              {sharing ? (
+                <button className="secondary-button" onClick={stopSharing}>
+                  Dejar de compartir
+                </button>
+              ) : (
+                <Dialog open={consentOpen} onOpenChange={setConsentOpen}>
+                  <DialogTrigger className="primary">
+                    <LocateFixed size={18} />
+                    Activar mi ubicación
+                  </DialogTrigger>
+                  <DialogContent
+                    showCloseButton={false}
+                    className="puerto-dialog"
+                  >
+                    <DialogTitle>Vos decidís cuándo compartir</DialogTitle>
+                    <DialogDescription>
+                      Esta demo muestra tu GPS en OpenStreetMap, que recibe las
+                      coordenadas para dibujar el mapa. No las envía al grupo.
+                      Podés desactivarlo en cualquier momento.
+                    </DialogDescription>
+                    <p>
+                      En la app conectada, compartir ubicación permite anunciar
+                      encuentros. Para dos personas, el grupo verá la frase
+                      lúdica «están teniendo relaciones amorosas».
+                    </p>
+                    <button className="primary" onClick={startSharing}>
+                      Permitir ubicación en la demo
+                    </button>
+                    <DialogClose className="secondary-button">
+                      Ahora no
+                    </DialogClose>
+                  </DialogContent>
+                </Dialog>
+              )}
+            </section>
+            <aside>
+              <section className="card">
+                <div className="section-heading">
+                  <h2>El grupo</h2>
+                  <span className="small-badge">Radio: {radius} m</span>
+                </div>
+                {members.map((name) => (
+                  <div className="member-row" key={name}>
+                    <Avatar name={name} />
+                    <div>
+                      <strong>{name}</strong>
+                      <small>
+                        {name === 'Denis' && currentGps
+                          ? 'Ubicación local activa'
+                          : 'Sin ubicación compartida'}
+                      </small>
+                    </div>
+                    <MapPin size={16} color="var(--secondary)" />
+                  </div>
+                ))}
+              </section>
+              <div className="tip">
+                <ShieldCheck size={23} />
+                <div>
+                  <strong>Sólo mientras vos quieras</strong>
+                  <p>
+                    Las ubicaciones del grupo requieren conectar el servicio en
+                    tiempo real.
+                  </p>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </TabsContent>
+        <TabsContent value="chat">
+          <section className="card chat-card">
+            <div className="section-heading">
+              <h2>
+                <span className="chat-mark">
+                  <MessageCircle size={20} />
+                </span>
+                Puerto · El grupo
+              </h2>
+              <span className="small-badge">Sala única · sesión local</span>
+            </div>
+            <div
+              className="chat-scroll"
+              role="log"
+              aria-label="Mensajes del grupo"
+              aria-live="polite"
+            >
+              {messages.length === 0 && (
+                <div className="empty-state">
+                  <span className="empty-icon">
+                    <MessageCircle size={36} />
+                  </span>
+                  <h2>La conversación empieza acá</h2>
+                  <p>
+                    Escribí un mensaje o probá la ruleta.
+                    <br />
+                    Los mensajes de esta demo se guardan en la sesión.
+                  </p>
+                </div>
+              )}
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={
+                    message.kind === 'roulette'
+                      ? 'system-message'
+                      : 'message-row'
+                  }
+                >
+                  {message.kind === 'roulette' ? (
+                    <>
+                      <Shuffle size={15} />
+                      <div>
+                        <strong>Resultado de la ruleta</strong>
+                        <p>{message.body}</p>
+                        <small>
+                          {message.at.toLocaleTimeString('es-AR', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </small>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="bubble">
+                      <strong>
+                        Denis <span>vos</span>
+                      </strong>
+                      <p>
+                        {message.deleted
+                          ? 'Mensaje eliminado por el administrador'
+                          : message.body}
+                      </p>
+                      <footer>
+                        <span>
+                          {message.at.toLocaleTimeString('es-AR', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}{' '}
+                          · Local
+                        </span>
+                        <Dialog>
+                          <DialogTrigger
+                            aria-label="Ver estado del mensaje"
+                            className="icon-button"
+                          >
+                            <CheckCheck size={15} />
+                          </DialogTrigger>
+                          <DialogContent
+                            showCloseButton={false}
+                            className="puerto-dialog"
+                          >
+                            <DialogTitle>Estado del mensaje</DialogTitle>
+                            <DialogDescription>
+                              Guardado en esta sesión. No hay confirmaciones de
+                              lectura: la demo no está conectada a otros
+                              integrantes.
+                            </DialogDescription>
+                            <DialogClose className="primary">
+                              Entendido
+                            </DialogClose>
+                          </DialogContent>
+                        </Dialog>
+                        {!message.deleted && (
+                          <button
+                            className="icon-button"
+                            aria-label="Eliminar mensaje como administrador"
+                            onClick={() =>
+                              setMessages((prev) =>
+                                prev.map((m) =>
+                                  m.id === message.id
+                                    ? { ...m, deleted: true }
+                                    : m,
+                                ),
+                              )
+                            }
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </footer>
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div ref={chatEnd} />
+            </div>
+            <form className="composer" onSubmit={send}>
+              <label className="sr-only" htmlFor="message">
+                Mensaje al grupo
+              </label>
+              <input
+                id="message"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                maxLength={4000}
+                placeholder="Escribí algo al grupo…"
+                autoComplete="off"
+              />
+              <button aria-label="Enviar mensaje local" disabled={!text.trim()}>
+                <ArrowUp size={20} />
+              </button>
+            </form>
+            <p className="footnote">
+              Sin conexión a otros integrantes · los datos se reinician al
+              recargar
+            </p>
+          </section>
+        </TabsContent>
+        <TabsContent value="perfil">
+          <div className="profile-grid">
+            <section className="card profile-summary">
+              <Avatar name="Denis" large src={avatar} />
+              <h2>Denis</h2>
+              <span className="admin-badge">
+                <ShieldCheck size={13} />
+                Administrador
+              </span>
+              <p>{bio || 'Todavía no agregaste una descripción.'}</p>
+              <label className="upload-label">
+                Cambiar avatar
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={(e) => void chooseAvatar(e.target.files?.[0])}
+                />
+              </label>
+              <small>JPG, PNG o WebP · hasta 2 MB</small>
+            </section>
+            <div>
+              <form className="card profile-form" onSubmit={saveProfile}>
+                <h2>Tu perfil</h2>
+                <label htmlFor="identity">Identidad del grupo</label>
+                <div className="locked-field">
+                  <input id="identity" value="Denis" readOnly />
+                  <ShieldCheck size={17} />
+                </div>
+                <p className="support">
+                  Vinculada a tu cuenta. No se puede cambiar.
+                </p>
+                <label htmlFor="bio">Descripción / Bio</label>
+                <textarea
+                  id="bio"
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  maxLength={280}
+                  placeholder="Algo que diga un poco de vos"
+                  rows={3}
+                />
+                <small className="char-count">{bio.length}/280</small>
+                <label htmlFor="birth">Fecha de nacimiento</label>
+                <input
+                  id="birth"
+                  type="date"
+                  value={birth}
+                  max={new Date().toLocaleDateString('en-CA')}
+                  onChange={(e) => setBirth(e.target.value)}
+                />
+                <p className="support">
+                  <Cake size={13} className="inline" /> Para que el grupo se
+                  acuerde de tu día. Tu año es privado.
+                </p>
+                <button className="primary" type="submit">
+                  Guardar perfil
+                </button>
+                <p role="status" className="support">
+                  {profileStatus}
+                </p>
+              </form>
+              <section className="card settings-card">
+                <h2>Ajustes</h2>
+                <div className="setting-row">
+                  <span className="setting-icon purple">
+                    <SunMoon size={17} />
+                  </span>
+                  <label htmlFor="theme">Apariencia</label>
+                  <NativeSelect
+                    id="theme"
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                  >
+                    <option value="system">Automática</option>
+                    <option value="light">Clara</option>
+                    <option value="dark">Oscura</option>
+                  </NativeSelect>
+                </div>
+                <Dialog>
+                  <DialogTrigger className="setting-row setting-trigger">
+                    <span className="setting-icon blue">
+                      <ShieldCheck size={17} />
+                    </span>
+                    <span>Configuración del grupo</span>
+                    <ChevronRight size={18} />
+                  </DialogTrigger>
+                  <DialogContent
+                    showCloseButton={false}
+                    className="puerto-dialog"
+                  >
+                    <DialogTitle>Configuración del grupo</DialogTitle>
+                    <DialogDescription>
+                      Acceso de Denis, administrador. Los cambios afectan esta
+                      demo local.
+                    </DialogDescription>
+                    <label htmlFor="radius">
+                      Radio de proximidad (10–500 m)
+                    </label>
+                    <input
+                      id="radius"
+                      type="number"
+                      min={10}
+                      max={500}
+                      value={radius}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        if (Number.isInteger(n) && n >= 10 && n <= 500)
+                          setRadius(n);
+                      }}
+                    />
+                    <label htmlFor="timezone">Zona horaria del grupo</label>
+                    <NativeSelect
+                      id="timezone"
+                      value={timezone}
+                      onChange={(e) => setTimezone(e.target.value)}
+                    >
+                      <option value="America/Argentina/Buenos_Aires">
+                        Buenos Aires
+                      </option>
+                      <option value="America/Montevideo">Montevideo</option>
+                      <option value="Europe/Madrid">Madrid</option>
+                    </NativeSelect>
+                    <p>
+                      Cumpleaños a las 00:00 de esta zona. El cron y las
+                      notificaciones se ejecutarán al conectar el backend.
+                    </p>
+                    <DialogClose className="primary">Listo</DialogClose>
+                  </DialogContent>
+                </Dialog>
+              </section>
+            </div>
+          </div>
+        </TabsContent>
+        <TabsList className="tabbar" aria-label="Navegación principal">
+          {(
+            [
+              { value: 'ruleta', label: 'Ruleta', Icon: CircleDot },
+              { value: 'mapa', label: 'Mapa', Icon: MapPin },
+              { value: 'chat', label: 'Chat', Icon: MessageCircle },
+              { value: 'perfil', label: 'Perfil', Icon: UserRound },
+            ] as const
+          ).map(({ value, label, Icon }) => (
+            <TabsTrigger
+              value={value}
+              className={tab === value ? 'active' : ''}
+              key={value}
+            >
+              <Icon aria-hidden="true" size={21} />
+              <span>{label}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+      <div role="status" className="footnote">
+        {notice}
+      </div>
+    </main>
+  );
 }
