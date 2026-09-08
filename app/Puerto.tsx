@@ -26,6 +26,7 @@ import {
   KeyRound,
   Mail,
   LogOut,
+  DollarSign,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -47,6 +48,7 @@ import {
   SEED_ACCOUNTS,
   verifyDemoCredentials,
   isValidBirthday,
+  splitExpense,
 } from '@/lib/domain';
 
 const seedAccounts: Account[] = SEED_ACCOUNTS.map((account) => ({
@@ -61,12 +63,14 @@ const colors = [
   '#007AFF',
   '#2864BA',
 ];
-type Message = {
+type Expense = {
   id: string;
-  body: string;
-  kind: 'text' | 'roulette';
+  concept: string;
+  amountCents: number;
+  payerId: string;
+  participantIds: string[];
   at: Date;
-  deleted?: boolean;
+  shares: ReturnType<typeof splitExpense>;
 };
 const titles = {
   ruleta: [
@@ -77,7 +81,10 @@ const titles = {
     'Cerca, aunque sea lejos.',
     'Tu ubicación se comparte sólo cuando vos lo decidís.',
   ],
-  chat: ['El punto de encuentro.', 'Una sola conversación para todo el grupo.'],
+  gastos: [
+    'Las cuentas, claras.',
+    'Registrá gastos y dejá que Puerto haga las cuentas.',
+  ],
   perfil: ['Este sos vos.', 'Tu lugar en Puerto. A tu manera.'],
 };
 function Avatar({
@@ -156,9 +163,13 @@ export default function Puerto() {
   const [spinning, setSpinning] = useState(false),
     [rotation, setRotation] = useState(0),
     [result, setResult] = useState<Draw | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]),
-    [text, setText] = useState('');
+  const [expenses, setExpenses] = useState<Expense[]>([]),
+    [expenseConcept, setExpenseConcept] = useState(''),
+    [expenseAmount, setExpenseAmount] = useState(''),
+    [expensePayer, setExpensePayer] = useState('denis'),
+    [expensePeople, setExpensePeople] = useState(members);
   const [bio, setBio] = useState(''),
+    [aiBio, setAiBio] = useState(''),
     [birth, setBirth] = useState('24/08'),
     [username, setUsername] = useState('Denis'),
     [newPassword, setNewPassword] = useState(''),
@@ -182,8 +193,7 @@ export default function Puerto() {
     generation = useRef(0),
     spinLock = useRef(false),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    sendLock = useRef(false),
-    chatEnd = useRef<HTMLDivElement>(null);
+    sendLock = useRef(false);
   const actionRef = useRef<(m?: Mode, ids?: string[]) => Promise<Draw>>(null);
   useEffect(() => {
     const clock = setInterval(() => setNow(Date.now()), 10000);
@@ -207,9 +217,6 @@ export default function Puerto() {
       localStorage.setItem('puerto-theme', theme);
     } catch {}
   }, [theme]);
-  useEffect(() => {
-    if (tab === 'chat') chatEnd.current?.scrollIntoView({ block: 'nearest' });
-  }, [messages, tab]);
   const currentGps = gps && now - gps.at <= 60000 ? gps : null;
   const size = mode === 'single' ? 1 : mode === 'teams2' ? 2 : 3;
   const enough = selected.length >= size;
@@ -222,10 +229,7 @@ export default function Puerto() {
         (r.substituteAssignments.length
           ? ` · Suplentes: ${r.substituteAssignments.map((assignment) => `${assignment.member} al equipo ${assignment.teamIndex + 1}`).join(', ')}`
           : '');
-    setMessages((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), kind: 'roulette', body, at: new Date() },
-    ]);
+    setNotice(`Resultado listo: ${body}`);
   }
   async function spin(
     nextMode: Mode = mode,
@@ -358,24 +362,6 @@ export default function Puerto() {
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
     );
   }
-  function send(e: FormEvent) {
-    e.preventDefault();
-    if (!text.trim() || sendLock.current) return;
-    sendLock.current = true;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        body: text.trim(),
-        kind: 'text',
-        at: new Date(),
-      },
-    ]);
-    setText('');
-    queueMicrotask(() => {
-      sendLock.current = false;
-    });
-  }
   function saveProfile(e: FormEvent) {
     e.preventDefault();
     if (!currentUser) return;
@@ -459,9 +445,11 @@ export default function Puerto() {
       <main className="auth-shell">
         <section className="auth-card" aria-labelledby="login-title">
           <div className="auth-brand">
-            <span className="brand-icon">
-              <Anchor size={23} aria-hidden="true" />
-            </span>
+            <img
+              className="brand-logo"
+              src="/puerto-app-logo.png"
+              alt="Puerto App"
+            />
             <strong>
               puerto<span>app</span>
             </strong>
@@ -543,9 +531,11 @@ export default function Puerto() {
   return (
     <main className="app-shell">
       <header className="brand">
-        <span className="brand-icon">
-          <Anchor size={23} aria-hidden="true" />
-        </span>
+        <img
+          className="brand-logo"
+          src="/puerto-app-logo.png"
+          alt="Puerto App"
+        />
         <strong>
           puerto<span>app</span>
         </strong>
@@ -575,6 +565,22 @@ export default function Puerto() {
           <div className="group-pill">
             <Users size={16} aria-hidden="true" />6 integrantes
           </div>
+        </div>
+        <div className="profile-rail" aria-label="Perfiles del grupo">
+          {seedAccounts.map((account) => (
+            <button
+              type="button"
+              key={account.id}
+              onClick={() => setTab('perfil')}
+              aria-label={`Ver perfil de ${account.displayName}`}
+            >
+              <Avatar
+                name={account.displayName}
+                online={account.id === currentUser.id}
+              />
+              <span>{account.displayName}</span>
+            </button>
+          ))}
         </div>
         <TabsContent value="ruleta">
           <div className="roulette-grid">
@@ -836,144 +842,181 @@ export default function Puerto() {
             </aside>
           </div>
         </TabsContent>
-        <TabsContent value="chat">
-          <section className="card chat-card">
-            <div className="section-heading">
-              <h2>
-                <span className="chat-mark">
-                  <MessageCircle size={20} />
-                </span>
-                Puerto · El grupo
-              </h2>
-              <span className="small-badge">Sala única · sesión local</span>
-            </div>
-            <div
-              className="chat-scroll"
-              role="log"
-              aria-label="Mensajes del grupo"
-              aria-live="polite"
+        <TabsContent value="gastos">
+          <div className="expenses-grid">
+            <form
+              className="card expense-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const amountCents = Math.round(
+                  Number(expenseAmount.replace(',', '.')) * 100,
+                );
+                try {
+                  const shares = splitExpense(
+                    amountCents,
+                    expensePayer,
+                    expensePeople,
+                  );
+                  setExpenses((previous) => [
+                    {
+                      id: crypto.randomUUID(),
+                      concept: expenseConcept.trim(),
+                      amountCents,
+                      payerId: expensePayer,
+                      participantIds: expensePeople,
+                      at: new Date(),
+                      shares,
+                    },
+                    ...previous,
+                  ]);
+                  setExpenseConcept('');
+                  setExpenseAmount('');
+                  setNotice('Gasto creado.');
+                } catch (error) {
+                  setNotice(
+                    error instanceof Error
+                      ? error.message
+                      : 'No se pudo crear el gasto.',
+                  );
+                }
+              }}
             >
-              {messages.length === 0 && (
+              <div className="section-heading">
+                <h2>
+                  <DollarSign size={18} />
+                  Nuevo gasto
+                </h2>
+                <span className="small-badge">División exacta</span>
+              </div>
+              <label htmlFor="concept">Concepto</label>
+              <input
+                id="concept"
+                value={expenseConcept}
+                onChange={(e) => setExpenseConcept(e.target.value)}
+                maxLength={140}
+                required
+                placeholder="Gomitas"
+              />
+              <label htmlFor="amount">Monto total</label>
+              <input
+                id="amount"
+                value={expenseAmount}
+                onChange={(e) => setExpenseAmount(e.target.value)}
+                inputMode="decimal"
+                required
+                placeholder="10000"
+              />
+              <label htmlFor="payer">¿Quién pagó?</label>
+              <NativeSelect
+                id="payer"
+                value={expensePayer}
+                onChange={(e) => setExpensePayer(e.target.value)}
+              >
+                {seedAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.displayName}
+                  </option>
+                ))}
+              </NativeSelect>
+              <p className="support">Participaron</p>
+              {seedAccounts.map((account) => (
+                <div className="member-row" key={account.id}>
+                  <Avatar name={account.displayName} />
+                  <strong>{account.displayName}</strong>
+                  <Switch
+                    aria-label={`Incluir a ${account.displayName} en el gasto`}
+                    checked={expensePeople.includes(account.id)}
+                    onCheckedChange={(checked) =>
+                      setExpensePeople((current) =>
+                        checked
+                          ? [...new Set([...current, account.id])]
+                          : current.filter((id) => id !== account.id),
+                      )
+                    }
+                  />
+                </div>
+              ))}
+              <button className="primary" type="submit">
+                Registrar gasto
+              </button>
+            </form>
+            <section className="card expense-history">
+              <div className="section-heading">
+                <h2>Historial</h2>
+                <span className="count">{expenses.length}</span>
+              </div>
+              {expenses.length === 0 ? (
                 <div className="empty-state">
                   <span className="empty-icon">
-                    <MessageCircle size={36} />
+                    <DollarSign size={36} />
                   </span>
-                  <h2>La conversación empieza acá</h2>
+                  <h2>Sin gastos todavía</h2>
                   <p>
-                    Escribí un mensaje o probá la ruleta.
-                    <br />
-                    Los mensajes de esta demo se guardan en la sesión.
+                    El primer gasto aparece acá y deja sus deudas registradas.
                   </p>
                 </div>
-              )}
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={
-                    message.kind === 'roulette'
-                      ? 'system-message'
-                      : 'message-row'
-                  }
-                >
-                  {message.kind === 'roulette' ? (
-                    <>
-                      <Shuffle size={15} />
-                      <div>
-                        <strong>Resultado de la ruleta</strong>
-                        <p>{message.body}</p>
-                        <small>
-                          {message.at.toLocaleTimeString('es-AR', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </small>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="bubble">
-                      <strong>
-                        {currentUser.displayName} <span>vos</span>
-                      </strong>
-                      <p>
-                        {message.deleted
-                          ? 'Mensaje eliminado por el administrador'
-                          : message.body}
-                      </p>
-                      <footer>
+              ) : (
+                expenses.map((expense) => (
+                  <article className="expense-card" key={expense.id}>
+                    <strong>{expense.concept}</strong>
+                    <span>
+                      ${(expense.amountCents / 100).toLocaleString('es-AR')}
+                    </span>
+                    <small>
+                      Pagó{' '}
+                      {
+                        seedAccounts.find(
+                          (account) => account.id === expense.payerId,
+                        )?.displayName
+                      }
+                    </small>
+                    {expense.shares.map((share) => (
+                      <div className="debt-line" key={share.debtorId}>
                         <span>
-                          {message.at.toLocaleTimeString('es-AR', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}{' '}
-                          · Local
+                          {
+                            seedAccounts.find(
+                              (account) => account.id === share.debtorId,
+                            )?.displayName
+                          }{' '}
+                          debe $
+                          {(share.amountCents / 100).toLocaleString('es-AR')}
                         </span>
-                        <Dialog>
-                          <DialogTrigger
-                            aria-label="Ver estado del mensaje"
-                            className="icon-button"
-                          >
-                            <CheckCheck size={15} />
-                          </DialogTrigger>
-                          <DialogContent
-                            showCloseButton={false}
-                            className="puerto-dialog"
-                          >
-                            <DialogTitle>Estado del mensaje</DialogTitle>
-                            <DialogDescription>
-                              Guardado en esta sesión. No hay confirmaciones de
-                              lectura: la demo no está conectada a otros
-                              integrantes.
-                            </DialogDescription>
-                            <DialogClose className="primary">
-                              Entendido
-                            </DialogClose>
-                          </DialogContent>
-                        </Dialog>
-                        {!message.deleted && (
+                        {share.paidAt ? (
+                          <small>Pagado</small>
+                        ) : currentUser.id === expense.payerId ? (
                           <button
-                            className="icon-button"
-                            aria-label="Eliminar mensaje como administrador"
+                            type="button"
                             onClick={() =>
-                              setMessages((prev) =>
-                                prev.map((m) =>
-                                  m.id === message.id
-                                    ? { ...m, deleted: true }
-                                    : m,
+                              setExpenses((all) =>
+                                all.map((item) =>
+                                  item.id !== expense.id
+                                    ? item
+                                    : {
+                                        ...item,
+                                        shares: item.shares.map((itemShare) =>
+                                          itemShare.debtorId === share.debtorId
+                                            ? {
+                                                ...itemShare,
+                                                paidAt:
+                                                  new Date().toISOString(),
+                                              }
+                                            : itemShare,
+                                        ),
+                                      },
                                 ),
                               )
                             }
                           >
-                            <Trash2 size={14} />
+                            Marcar pagado
                           </button>
-                        )}
-                      </footer>
-                    </div>
-                  )}
-                </div>
-              ))}
-              <div ref={chatEnd} />
-            </div>
-            <form className="composer" onSubmit={send}>
-              <label className="sr-only" htmlFor="message">
-                Mensaje al grupo
-              </label>
-              <input
-                id="message"
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                maxLength={4000}
-                placeholder="Escribí algo al grupo…"
-                autoComplete="off"
-              />
-              <button aria-label="Enviar mensaje local" disabled={!text.trim()}>
-                <ArrowUp size={20} />
-              </button>
-            </form>
-            <p className="footnote">
-              Sin conexión a otros integrantes · los datos se reinician al
-              recargar
-            </p>
-          </section>
+                        ) : null}
+                      </div>
+                    ))}
+                  </article>
+                ))
+              )}
+            </section>
+          </div>
         </TabsContent>
         <TabsContent value="perfil">
           <div className="profile-grid">
@@ -1028,6 +1071,25 @@ export default function Puerto() {
                   rows={3}
                 />
                 <small className="char-count">{bio.length}/280</small>
+                <label htmlFor="ai-bio">Descripción IA</label>
+                <textarea
+                  id="ai-bio"
+                  value={aiBio}
+                  onChange={(e) => setAiBio(e.target.value)}
+                  readOnly={currentUser.role !== 'admin'}
+                  maxLength={280}
+                  placeholder={
+                    currentUser.role === 'admin'
+                      ? 'Descripción asistida para el perfil'
+                      : 'Sólo Denis puede editar esta descripción'
+                  }
+                  rows={2}
+                />
+                <p className="support">
+                  {currentUser.role === 'admin'
+                    ? 'Como administrador, podés editar esta descripción.'
+                    : 'Sólo el administrador puede modificarla.'}
+                </p>
                 <label htmlFor="birth">Cumpleaños (DD/MM)</label>
                 <input
                   id="birth"
@@ -1194,7 +1256,7 @@ export default function Puerto() {
             [
               { value: 'ruleta', label: 'Ruleta', Icon: CircleDot },
               { value: 'mapa', label: 'Mapa', Icon: MapPin },
-              { value: 'chat', label: 'Chat', Icon: MessageCircle },
+              { value: 'gastos', label: 'Gastos', Icon: DollarSign },
               { value: 'perfil', label: 'Perfil', Icon: UserRound },
             ] as const
           ).map(({ value, label, Icon }) => (

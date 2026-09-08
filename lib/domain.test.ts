@@ -10,6 +10,7 @@ import {
   SEED_ACCOUNTS,
   verifyDemoCredentials,
   isValidBirthday,
+  splitExpense,
 } from './domain.ts';
 const ids = ['Denis', 'Drizza', 'Castro', 'Alan', 'Maxi', 'Alca'];
 test('Ruleta: cada tamaño y filtro conserva exactamente los elegibles', () => {
@@ -93,6 +94,15 @@ test('Cumpleaños DD/MM valida calendario', () => {
   assert.equal(isValidBirthday('29/02'), true);
   for (const value of ['30/02', '31/04', '00/12', '01/13', '1/1'])
     assert.equal(isValidBirthday(value), false);
+});
+test('Gastos se dividen en centavos y el pagador no se debe a sí mismo', () => {
+  assert.deepEqual(splitExpense(10000, 'denis', ['denis', 'drizza', 'alan']), [
+    { debtorId: 'drizza', amountCents: 3333, paidAt: null },
+    { debtorId: 'alan', amountCents: 3333, paidAt: null },
+  ]);
+  assert.deepEqual(splitExpense(100, 'denis', ['denis']), []);
+  assert.throws(() => splitExpense(0, 'denis', ['denis']));
+  assert.throws(() => splitExpense(100, 'denis', ['drizza']));
 });
 const now = 100000;
 const point = (id: string, m: number, extra: Partial<Point> = {}): Point => ({

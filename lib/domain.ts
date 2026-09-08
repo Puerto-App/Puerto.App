@@ -1,4 +1,31 @@
 export type Mode = 'teams3' | 'teams2' | 'single';
+export type ExpenseShare = {
+  debtorId: string;
+  amountCents: number;
+  paidAt: string | null;
+};
+export function splitExpense(
+  amountCents: number,
+  payerId: string,
+  participantIds: string[],
+): ExpenseShare[] {
+  if (!Number.isInteger(amountCents) || amountCents < 1)
+    throw new Error('Monto inválido');
+  const participants = [...new Set(participantIds)];
+  if (!participants.length)
+    throw new Error('Seleccioná al menos un participante');
+  if (!participants.includes(payerId))
+    throw new Error('El pagador debe participar del gasto');
+  const debtors = participants.filter((id) => id !== payerId);
+  if (!debtors.length) return [];
+  const each = Math.floor(amountCents / participants.length);
+  // El pagador absorbe los centavos restantes: nadie paga más que su parte base.
+  return debtors.map((debtorId) => ({
+    debtorId,
+    amountCents: each,
+    paidAt: null,
+  }));
+}
 export type SeedAccount = {
   id: string;
   displayName: string;
