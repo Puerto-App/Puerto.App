@@ -50,7 +50,7 @@ import {
   isValidBirthday,
   splitExpense,
 } from '@/lib/domain';
-import { signInWithFirebaseGoogle, type FirebaseUser } from '@/lib/firebase';
+import { claimMember, findMemberByUid, saveMember, seedMembers, signInWithFirebaseGoogle, type FirebaseUser } from '@/lib/firebase';
 
 const seedAccounts: Account[] = SEED_ACCOUNTS.map((account) => ({
   ...account,
@@ -409,8 +409,11 @@ export default function Puerto() {
       ),
     );
     setCurrentUser(updated);
+    void saveMember(updated.id, { username: updated.username, birthday: updated.birthday, bio, aiBio, avatar }).catch(() =>
+      setProfileStatus('No se pudo guardar el perfil. Revisá tu conexión.'),
+    );
     setNewPassword('');
-    setProfileStatus('Perfil actualizado en esta sesión de demostración.');
+    setProfileStatus('Perfil guardado y sincronizado.');
   }
 
   function signIn(e: FormEvent) {
@@ -434,39 +437,41 @@ export default function Puerto() {
   async function signInGoogle() {
     try {
       const googleUser = await signInWithFirebaseGoogle();
-      const byEmail = accounts.find(
-        (account) => account.email.toLowerCase() === googleUser.email?.toLowerCase(),
-      );
-      if (byEmail?.role === 'admin') {
-        setLoginStatus('La cuenta de Denis se ingresa con sus credenciales de administrador.');
-        return;
-      }
-      if (!byEmail) {
+      await seedMembers(accounts);
+      const linked = await findMemberByUid(googleUser.uid, accounts.map((account) => account.id));
+      if (!linked) {
         setPendingGoogle(googleUser);
         setLoginStatus(
           `Google validó ${googleUser.displayName || googleUser.email}. Elegí quién sos para vincular esta identidad.`,
         );
         return;
       }
-      setCurrentUser(byEmail);
-      setProfileSubjectId(byEmail.id);
-      setUsername(byEmail.username);
-      setBirth(byEmail.birthday);
+      const account = linked as Account;
+      setCurrentUser(account);
+      setProfileSubjectId(account.id);
+      setUsername(account.username);
+      setBirth(account.birthday);
       setLinkedGoogle(true);
       setLoginStatus('');
     } catch (error) {
       setLoginStatus(error instanceof Error ? error.message : 'No se pudo iniciar con Google.');
     }
   }
-  function finishGoogleOnboarding(account: Account) {
+  async function finishGoogleOnboarding(account: Account) {
     if (!pendingGoogle || account.role === 'admin') return;
-    setCurrentUser(account);
-    setProfileSubjectId(account.id);
-    setUsername(account.username);
-    setBirth(account.birthday);
-    setLinkedGoogle(true);
-    setPendingGoogle(null);
-    setLoginStatus('');
+    try {
+      const linked = await claimMember(account.id, pendingGoogle);
+      const member = linked as Account;
+      setCurrentUser(member);
+      setProfileSubjectId(member.id);
+      setUsername(member.username);
+      setBirth(member.birthday);
+      setLinkedGoogle(true);
+      setPendingGoogle(null);
+      setLoginStatus('');
+    } catch (error) {
+      setLoginStatus(error instanceof Error ? error.message : 'No se pudo vincular la cuenta.');
+    }
   }
   async function chooseAvatar(file?: File) {
     if (!file) return;
@@ -503,62 +508,16 @@ export default function Puerto() {
             <h1 id="login-title">Volvé al puerto.</h1>
             <p>Ingresá con tu usuario o correo vinculado.</p>
           </div>
-          <form className="auth-form" onSubmit={signIn}>
-            <label htmlFor="login-identity">Usuario o correo electrónico</label>
-            <div className="input-with-icon">
-              <Mail size={17} aria-hidden="true" />
-              <input
-                id="login-identity"
-                value={loginIdentity}
-                onChange={(e) => setLoginIdentity(e.target.value)}
-                autoComplete="username"
-                required
-              />
-            </div>
-            <label htmlFor="login-password">Contraseña</label>
-            <div className="input-with-icon">
-              <KeyRound size={17} aria-hidden="true" />
-              <input
-                id="login-password"
-                type="password"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                autoComplete="current-password"
-                required
-              />
-            </div>
-            <button className="primary" type="submit">
-              <LogIn size={18} aria-hidden="true" />
-              Ingresar
-            </button>
-            <p className="form-status" role="alert">
-              {loginStatus}
-            </p>
-          </form>
-          <div className="auth-divider">
-            <span>o continuá con</span>
-          </div>
+          <p className="auth-google-copy">Ingresá con la cuenta de Google que vas a vincular a Puerto App.</p>
           <div className="social-buttons">
-            <button
+            <button className="primary"
               type="button"
               onClick={() => void signInGoogle()}
             >
-              <span className="provider-g">G</span>Google
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setLoginStatus(
-                  'Sign in with Apple requiere Services ID, clave privada y dominio verificado.',
-                )
-              }
-            >
-              <span className="provider-apple" aria-hidden="true">
-                ●
-              </span>
-              Apple
+              <span className="provider-g">G</span>Continuar con Google
             </button>
           </div>
+          <p className="form-status" role="alert">{loginStatus}</p>
           {pendingGoogle && (
             <section className="onboarding-card" aria-label="Elegí tu integrante">
               <h2>¿Quién sos?</h2>
@@ -580,9 +539,7 @@ export default function Puerto() {
           )}
           <p className="demo-note">
             <ShieldCheck size={15} aria-hidden="true" /> Demo privada: las
-            credenciales iniciales se validan sólo en este navegador. Google se
-            autentica mediante Firebase; Apple requiere su configuración de
-            producción.
+            acceso protegido por Google y Firebase Authentication.
           </p>
         </section>
       </main>
