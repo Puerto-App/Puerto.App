@@ -157,11 +157,14 @@ export function draw(ids: string[], mode: Mode, rng = randomInt): Draw {
       substituteAssignments: [],
       winner: pool[0],
     };
-  const count = Math.floor(pool.length / size);
+  // Keep every team visible. Five people in teams of three becomes 3 + 2:
+  // the final member is explicitly recorded as the substitute of one team.
+  const count = Math.ceil(pool.length / size);
+  const baseSize = Math.floor(pool.length / count);
   const teams = Array.from({ length: count }, (_, i) =>
-    pool.slice(i * size, (i + 1) * size),
+    pool.slice(i * baseSize, (i + 1) * baseSize),
   );
-  const substitutes = pool.slice(count * size);
+  const substitutes = pool.slice(count * baseSize);
   const availableTeams = teams.map((_, teamIndex) => teamIndex);
   const substituteAssignments = substitutes.map((member) => {
     const smallest = Math.min(...availableTeams.map((i) => teams[i].length));

@@ -46,9 +46,9 @@ test('Ruleta: cada tamaño y filtro conserva exactamente los elegibles', () => {
     }
   assert.throws(() => draw(['a', 'a'], 'single'));
 });
-test('Suplentes se integran una vez y se asignan sólo a equipos completos', () => {
+test('Con cinco personas para equipos de tres se muestran dos equipos 3/2', () => {
   const sequence = [0, 0, 0, 0, 0, 1];
-  const r = draw(ids.slice(0, 5), 'teams2', () => sequence.shift() ?? 0);
+  const r = draw(ids.slice(0, 5), 'teams3', () => sequence.shift() ?? 0);
   assert.equal(r.teams.length, 2);
   assert.deepEqual(r.teams.map((t) => t.length).sort(), [2, 3]);
   assert.equal(r.substitutes.length, 1);

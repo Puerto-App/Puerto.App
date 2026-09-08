@@ -152,6 +152,7 @@ function Result({ result }: { result: Draw }) {
 export default function Puerto() {
   const [accounts, setAccounts] = useState(seedAccounts);
   const [currentUser, setCurrentUser] = useState<Account | null>(null);
+  const [profileSubjectId, setProfileSubjectId] = useState<string | null>(null);
   const [loginIdentity, setLoginIdentity] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginStatus, setLoginStatus] = useState('');
@@ -218,6 +219,9 @@ export default function Puerto() {
     } catch {}
   }, [theme]);
   const currentGps = gps && now - gps.at <= 60000 ? gps : null;
+  const profileSubject =
+    accounts.find((account) => account.id === profileSubjectId) ?? currentUser;
+  const isOwnProfile = profileSubject?.id === currentUser?.id;
   const size = mode === 'single' ? 1 : mode === 'teams2' ? 2 : 3;
   const enough = selected.length >= size;
   function addResult(r: Draw) {
@@ -419,6 +423,7 @@ export default function Puerto() {
       return;
     }
     setCurrentUser(account);
+    setProfileSubjectId(account.id);
     setUsername(account.username);
     setBirth(account.birthday);
     setLoginPassword('');
@@ -571,7 +576,10 @@ export default function Puerto() {
             <button
               type="button"
               key={account.id}
-              onClick={() => setTab('perfil')}
+              onClick={() => {
+                setProfileSubjectId(account.id);
+                setTab('perfil');
+              }}
               aria-label={`Ver perfil de ${account.displayName}`}
             >
               <Avatar
@@ -657,7 +665,7 @@ export default function Puerto() {
                   ? `Activá al menos ${size} integrante${size === 1 ? '' : 's'}.`
                   : mode === 'single'
                     ? `${selected.length} participantes · una persona elegida`
-                    : `${Math.floor(selected.length / size)} equipo${Math.floor(selected.length / size) > 1 ? 's' : ''} de ${size}${selected.length % size ? ` · ${selected.length % size} suplente${selected.length % size > 1 ? 's' : ''}` : ''}`}
+                    : `${Math.ceil(selected.length / size)} equipo${Math.ceil(selected.length / size) > 1 ? 's' : ''} balanceado${Math.ceil(selected.length / size) > 1 ? 's' : ''}${selected.length % size ? ` · ${selected.length % size} suplente${selected.length % size > 1 ? 's' : ''}` : ''}`}
               </p>
               {result && (
                 <div aria-live="polite">
@@ -1022,36 +1030,53 @@ export default function Puerto() {
           <div className="profile-grid">
             <section className="card profile-summary">
               <Avatar
-                name={currentUser.displayName}
+                name={profileSubject!.displayName}
                 large
-                src={avatar}
-                online
+                src={isOwnProfile ? avatar : undefined}
+                online={isOwnProfile}
               />
-              <h2>{currentUser.displayName}</h2>
+              <h2>{profileSubject!.displayName}</h2>
               <span className="admin-badge">
                 <ShieldCheck size={13} />
-                {currentUser.role === 'admin' ? 'Administrador' : 'Miembro'}
+                {profileSubject!.role === 'admin' ? 'Administrador' : 'Miembro'}
               </span>
-              <p>{bio || 'Todavía no agregaste una descripción.'}</p>
-              <label className="upload-label">
-                Cambiar avatar
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={(e) => void chooseAvatar(e.target.files?.[0])}
-                />
-              </label>
-              <small>JPG, PNG o WebP · hasta 2 MB</small>
+              <p>
+                {isOwnProfile
+                  ? bio || 'Todavía no agregaste una descripción.'
+                  : `Perfil de @${profileSubject!.username}`}
+              </p>
+              {isOwnProfile ? (
+                <>
+                  <label className="upload-label">
+                    Cambiar avatar
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(e) => void chooseAvatar(e.target.files?.[0])}
+                    />
+                  </label>
+                  <small>JPG, PNG o WebP · hasta 2 MB</small>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setProfileSubjectId(currentUser.id)}
+                >
+                  Ver mi perfil
+                </button>
+              )}
             </section>
             <div>
               <form className="card profile-form" onSubmit={saveProfile}>
-                <h2>Tu perfil</h2>
+                <h2>{isOwnProfile ? 'Tu perfil' : `Perfil de ${profileSubject!.displayName}`}</h2>
                 <label htmlFor="identity">Nombre de usuario</label>
                 <div className="locked-field editable-field">
                   <input
                     id="identity"
-                    value={username}
+                    value={isOwnProfile ? username : profileSubject!.username}
                     onChange={(e) => setUsername(e.target.value)}
+                    disabled={!isOwnProfile}
                     autoComplete="username"
                     required
                   />
@@ -1064,19 +1089,20 @@ export default function Puerto() {
                 <label htmlFor="bio">Descripción / Bio</label>
                 <textarea
                   id="bio"
-                  value={bio}
+                  value={isOwnProfile ? bio : ''}
                   onChange={(e) => setBio(e.target.value)}
+                  disabled={!isOwnProfile}
                   maxLength={280}
                   placeholder="Algo que diga un poco de vos"
                   rows={3}
                 />
-                <small className="char-count">{bio.length}/280</small>
+                <small className="char-count">{isOwnProfile ? bio.length : 0}/280</small>
                 <label htmlFor="ai-bio">Descripción IA</label>
                 <textarea
                   id="ai-bio"
-                  value={aiBio}
+                  value={isOwnProfile ? aiBio : ''}
                   onChange={(e) => setAiBio(e.target.value)}
-                  readOnly={currentUser.role !== 'admin'}
+                  readOnly={currentUser.role !== 'admin' || !isOwnProfile}
                   maxLength={280}
                   placeholder={
                     currentUser.role === 'admin'
@@ -1094,11 +1120,12 @@ export default function Puerto() {
                 <input
                   id="birth"
                   type="text"
-                  value={birth}
+                  value={isOwnProfile ? birth : profileSubject!.birthday}
                   inputMode="numeric"
                   pattern="[0-9]{2}/[0-9]{2}"
                   placeholder="24/08"
                   onChange={(e) => setBirth(e.target.value)}
+                  disabled={!isOwnProfile}
                 />
                 <p className="support">
                   <Cake size={13} className="inline" /> Para que el grupo se
@@ -1110,6 +1137,7 @@ export default function Puerto() {
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
+                  disabled={!isOwnProfile}
                   minLength={10}
                   autoComplete="new-password"
                   placeholder="Dejala vacía para conservarla"
@@ -1118,7 +1146,7 @@ export default function Puerto() {
                   Mínimo 10 caracteres. En producción se guarda con hash
                   Argon2id.
                 </p>
-                <button className="primary" type="submit">
+                <button className="primary" type="submit" disabled={!isOwnProfile}>
                   Guardar perfil
                 </button>
                 <p role="status" className="support">
