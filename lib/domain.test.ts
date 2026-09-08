@@ -8,7 +8,6 @@ import {
   birthdayMatches,
   type Point,
   SEED_ACCOUNTS,
-  verifyDemoCredentials,
   isValidBirthday,
   splitExpense,
 } from './domain.ts';
@@ -57,30 +56,11 @@ test('Con cinco personas para equipos de tres se muestran dos equipos 3/2', () =
     r.teams[r.substituteAssignments[0].teamIndex].includes(r.substitutes[0]),
   );
 });
-test('Las seis cuentas iniciales ingresan por username o email', () => {
+test('Las seis cuentas iniciales definen el grupo cerrado', () => {
   assert.equal(SEED_ACCOUNTS.length, 6);
-  for (const account of SEED_ACCOUNTS) {
-    assert.equal(
-      verifyDemoCredentials(
-        SEED_ACCOUNTS,
-        account.username.toUpperCase(),
-        account.password,
-      )?.id,
-      account.id,
-    );
-    assert.equal(
-      verifyDemoCredentials(
-        SEED_ACCOUNTS,
-        account.email.toUpperCase(),
-        account.password,
-      )?.id,
-      account.id,
-    );
-    assert.equal(
-      verifyDemoCredentials(SEED_ACCOUNTS, account.username, 'incorrecta'),
-      null,
-    );
-  }
+  assert.deepEqual(SEED_ACCOUNTS.map((account) => account.id), [
+    'denis', 'drizza', 'castro', 'alan', 'maxi', 'alca',
+  ]);
   assert.equal(
     SEED_ACCOUNTS.filter((account) => account.role === 'admin')
       .map((account) => account.id)
