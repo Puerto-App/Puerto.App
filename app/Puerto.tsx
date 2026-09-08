@@ -50,6 +50,7 @@ import {
   isValidBirthday,
   splitExpense,
 } from '@/lib/domain';
+import { signInWithFirebaseGoogle, type FirebaseUser } from '@/lib/firebase';
 
 const seedAccounts: Account[] = SEED_ACCOUNTS.map((account) => ({
   ...account,
@@ -156,6 +157,7 @@ export default function Puerto() {
   const [loginIdentity, setLoginIdentity] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginStatus, setLoginStatus] = useState('');
+  const [pendingGoogle, setPendingGoogle] = useState<FirebaseUser | null>(null);
   const [linkedGoogle, setLinkedGoogle] = useState(false);
   const [linkedApple, setLinkedApple] = useState(false);
   const [tab, setTab] = useState<keyof typeof titles>('ruleta');
@@ -429,6 +431,43 @@ export default function Puerto() {
     setLoginPassword('');
     setLoginStatus('');
   }
+  async function signInGoogle() {
+    try {
+      const googleUser = await signInWithFirebaseGoogle();
+      const byEmail = accounts.find(
+        (account) => account.email.toLowerCase() === googleUser.email?.toLowerCase(),
+      );
+      if (byEmail?.role === 'admin') {
+        setLoginStatus('La cuenta de Denis se ingresa con sus credenciales de administrador.');
+        return;
+      }
+      if (!byEmail) {
+        setPendingGoogle(googleUser);
+        setLoginStatus(
+          `Google validó ${googleUser.displayName || googleUser.email}. Elegí quién sos para vincular esta identidad.`,
+        );
+        return;
+      }
+      setCurrentUser(byEmail);
+      setProfileSubjectId(byEmail.id);
+      setUsername(byEmail.username);
+      setBirth(byEmail.birthday);
+      setLinkedGoogle(true);
+      setLoginStatus('');
+    } catch (error) {
+      setLoginStatus(error instanceof Error ? error.message : 'No se pudo iniciar con Google.');
+    }
+  }
+  function finishGoogleOnboarding(account: Account) {
+    if (!pendingGoogle || account.role === 'admin') return;
+    setCurrentUser(account);
+    setProfileSubjectId(account.id);
+    setUsername(account.username);
+    setBirth(account.birthday);
+    setLinkedGoogle(true);
+    setPendingGoogle(null);
+    setLoginStatus('');
+  }
   async function chooseAvatar(file?: File) {
     if (!file) return;
     if (
@@ -502,11 +541,7 @@ export default function Puerto() {
           <div className="social-buttons">
             <button
               type="button"
-              onClick={() =>
-                setLoginStatus(
-                  'Google OAuth requiere configurar el cliente y su callback en el backend de producción.',
-                )
-              }
+              onClick={() => void signInGoogle()}
             >
               <span className="provider-g">G</span>Google
             </button>
@@ -524,6 +559,25 @@ export default function Puerto() {
               Apple
             </button>
           </div>
+          {pendingGoogle && (
+            <section className="onboarding-card" aria-label="Elegí tu integrante">
+              <h2>¿Quién sos?</h2>
+              <p>Vas a vincular Google como {pendingGoogle.displayName || pendingGoogle.email}.</p>
+              <div className="onboarding-members">
+                {accounts
+                  .filter((account) => account.role !== 'admin')
+                  .map((account) => (
+                    <button
+                      type="button"
+                      key={account.id}
+                      onClick={() => finishGoogleOnboarding(account)}
+                    >
+                      {account.displayName}
+                    </button>
+                  ))}
+              </div>
+            </section>
+          )}
           <p className="demo-note">
             <ShieldCheck size={15} aria-hidden="true" /> Demo privada: las
             credenciales iniciales se validan sólo en este navegador. Google y
