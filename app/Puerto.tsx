@@ -52,6 +52,7 @@ const seedAccounts: Account[] = SEED_ACCOUNTS.map((account) => ({
   ...account,
 }));
 const members = seedAccounts.map((account) => account.displayName);
+const denisGoogleEmail = 'denislautaro6@gmail.com';
 const colors = [
   '#0A84FF',
   '#5E5CE6',
@@ -432,7 +433,12 @@ export default function Puerto() {
     }
   }
   async function finishGoogleOnboarding(account: Account) {
-    if (!pendingGoogle || account.role === 'admin') return;
+    if (!pendingGoogle) return;
+    const googleEmail = pendingGoogle.email?.trim().toLowerCase();
+    if (account.role === 'admin' && googleEmail !== denisGoogleEmail) {
+      setLoginStatus('El perfil de Denis sólo puede vincularse con denislautaro6@gmail.com.');
+      return;
+    }
     try {
       const linked = await claimMember(account.id, pendingGoogle);
       const member = linked as Account;
@@ -498,17 +504,29 @@ export default function Puerto() {
               <p>Vas a vincular Google como {pendingGoogle.displayName || pendingGoogle.email}.</p>
               <div className="onboarding-members">
                 {accounts
-                  .filter((account) => account.role !== 'admin')
                   .map((account) => (
                     <button
                       type="button"
                       key={account.id}
                       onClick={() => finishGoogleOnboarding(account)}
+                      disabled={
+                        account.role === 'admin' &&
+                        pendingGoogle.email?.trim().toLowerCase() !== denisGoogleEmail
+                      }
+                      title={
+                        account.role === 'admin'
+                          ? `Disponible sólo con ${denisGoogleEmail}`
+                          : undefined
+                      }
                     >
                       {account.displayName}
+                      {account.role === 'admin' ? ' · administrador' : ''}
                     </button>
                   ))}
               </div>
+              <p className="support">
+                Denis sólo se habilita con {denisGoogleEmail}.
+              </p>
             </section>
           )}
           <p className="demo-note">
@@ -535,7 +553,6 @@ export default function Puerto() {
           onClick={() => {
             stopSharing();
             setCurrentUser(null);
-            setLoginIdentity('');
           }}
         >
           <LogOut size={15} aria-hidden="true" />
